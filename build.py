@@ -1354,7 +1354,7 @@ def index_page():
         )
 
     faqs = [
-        ('How are the plugins licensed?', 'Each plugin is licensed individually. Start a <strong>14-day free trial</strong> from the plugin\'s admin page — card required, nothing charged until day 15, cancel any time — which continues as a monthly (£2.95–£14.95/mo) or annual (two months free) subscription. Or buy a one-off lifetime licence (£59–£299, never expires, 12 months of updates included). Every option gives you a JWT licence key that installs itself in the admin.'),
+        ('How are the plugins licensed?', 'Each plugin is licensed individually. Every install gets <strong>14 days with every feature on, no card and no key</strong>. To keep the premium features after that, subscribe from the plugin\'s admin page — subscriptions start with a further 14-day free trial (card required, nothing charged for two weeks, cancel any time) and continue as a monthly (£2.95–£14.95/mo) or annual (two months free) subscription. Or buy a one-off lifetime licence (£59–£299, never expires, 12 months of updates included). Every option gives you a JWT licence key that installs itself in the admin.'),
         ('How do I buy and activate a licence?', 'Open the plugin\'s page in your Vendure admin, pick monthly or annual on the licence banner and click <strong>Start 14-day free trial</strong> (or choose lifetime and click <strong>Buy lifetime</strong>). Stripe Checkout opens in a new tab; within a minute of payment the licence installs itself in the admin — no email round-trip, no <code>.env</code> edit, no restart. Renewed subscription keys are picked up automatically. Prefer to buy on the web? Use the plugin\'s buy page and paste the emailed key into the admin instead.'),
         ('How do I manage / cancel my subscription?', 'Every receipt email includes a Stripe Customer Portal link — click it to update your payment method, see invoices, or cancel. No need to email us. Lifetime customers have nothing to manage; reply to your receipt if you need a VAT invoice.'),
         ('I lost my licence key — what now?', 'Re-send every active key on file at <a class="underline underline-offset-2" href="https://elite.charity/licence/forgot">elite.charity/licence/forgot</a>. We always show the same confirmation regardless of whether the email is on file (anti-enumeration), so check spam if nothing arrives. Limited to 5 requests per email per day.'),
@@ -1501,7 +1501,7 @@ export const config: VendureConfig = {{
         ('How do I get a licence key?',
          f'<a class="underline underline-offset-2" href="{BUY_BASE}/{pkg_short}">Buy here</a> — Stripe Checkout — monthly, annual (two months free) or lifetime. You\'ll receive the JWT key by email. Paste it into the plugin\'s admin settings (Activate) — no redeploy — or set it as <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">{env_var_name}</code> in your <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">.env</code> if you prefer config-as-code; the env key wins when both are present.'),
         ('Does it work without a key?',
-         'Yes — every subscription starts with a 14-day free trial. Install the plugin, open its admin page and click <strong>Start 14-day free trial</strong>: a card is required, nothing is charged until day 15, and you can cancel any time before then. The licence installs itself and every premium feature is on for the whole trial with your real traffic.'),
+         'Yes. Every install runs with <strong>all premium features on for its first 14 days</strong> — no card, no licence key, nothing to configure — so you can judge it on your real traffic. After that it keeps working in the free tier. To keep the premium features, click <strong>Start 14-day free trial</strong> on the plugin\'s admin page: subscriptions add a further 14 days free (card required, nothing charged until then, cancel any time), and the licence installs itself.'),
         ('Which databases are supported?',
          'MySQL, MariaDB and PostgreSQL (verified against PostgreSQL 17). The plugin follows your Vendure <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">dbConnectionOptions</code> automatically — there is nothing to configure.'),
         ('How do updates work?',
@@ -1542,8 +1542,8 @@ export const config: VendureConfig = {{
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">Try the whole thing, keep the core for free.</h2>
 <p class="mt-4 text-ink-600">Install without a key and everything on the left works indefinitely. The 14-day trial switches the right-hand column on with your real traffic; a licence keeps it on.</p>
 <div class="mt-8 grid gap-6 md:grid-cols-2">
-<div class="rounded-lg border border-ink-200 bg-white p-6"><p class="text-xs font-semibold uppercase tracking-wider text-ink-500">Free, no key</p><ul class="vp-tier-list mt-3">{free_li}</ul></div>
-<div class="rounded-lg border border-accent-300 bg-accent-50 p-6"><p class="text-xs font-semibold uppercase tracking-wider text-accent-700">Trial + licensed</p><ul class="vp-tier-list mt-3">{paid_li}</ul><a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-primary mt-5">Start 14-day free trial →</a></div>
+<div class="rounded-lg border border-ink-200 bg-white p-6"><p class="text-xs font-semibold uppercase tracking-wider text-ink-500">Free tier (after the 14 days)</p><ul class="vp-tier-list mt-3">{free_li}</ul></div>
+<div class="rounded-lg border border-accent-300 bg-accent-50 p-6"><p class="text-xs font-semibold uppercase tracking-wider text-accent-700">First 14 days + licensed</p><ul class="vp-tier-list mt-3">{paid_li}</ul><a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-primary mt-5">Start 14-day free trial →</a></div>
 </div>
 </div>
 </section>
@@ -1650,7 +1650,7 @@ compileUiExtensions({{
 {migration_step}
 
 <div class="mt-10 rounded-lg border border-ink-200 bg-white p-6">
-<p class="text-sm text-ink-700"><strong>That's it.</strong> Restart Vendure and the plugin's page is in the admin. Without a key it runs in the free tier; open the page and click <strong>Start 14-day free trial</strong> to switch everything on — the key installs itself, no <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">.env</code> edit, no redeploy.</p>
+<p class="text-sm text-ink-700"><strong>That's it.</strong> Restart Vendure and the plugin's page is in the admin with <strong>every feature on for 14 days</strong> — no card, no key. To keep it all on afterwards, open the page and click <strong>Start 14-day free trial</strong> to subscribe — the key installs itself, no <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">.env</code> edit, no redeploy.</p>
 </div>
 </div>
 </section>
