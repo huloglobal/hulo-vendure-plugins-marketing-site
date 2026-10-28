@@ -168,7 +168,7 @@ def ccy_picker_html(select_id: str, mobile: bool = False) -> str:
 # one place.
 COMMON_FEATURES = [
     ('MySQL, MariaDB & PostgreSQL', 'The plugin follows whatever database your Vendure `dbConnectionOptions` use — no configuration. Verified against PostgreSQL 17; MySQL/MariaDB installs are unchanged.'),
-    ('Buy & activate from the admin', 'Start the 14-day free trial, subscribe or buy lifetime from the plugin\'s admin page — checkout opens in a new tab and the key installs itself within a minute, renewals included. The same card shows your plan, first-charge date and a <strong>Manage billing</strong> link to the Stripe portal (update card, cancel, switch plan). Already have a key? Paste it into the same banner. No `.env` edit, no redeploy; environment keys still take precedence for infrastructure-as-code setups.'),
+    ('Buy & activate from the admin', 'Start the 14-day free trial, subscribe or buy lifetime from the plugin\'s admin page — checkout opens in a new tab and the key installs itself within a minute, renewals included. The same card shows your plan, first-charge date and a Manage billing link to the Stripe portal (update card, cancel, switch plan). Already have a key? Paste it into the same banner. No `.env` edit, no redeploy; environment keys still take precedence for infrastructure-as-code setups.'),
     ('Weekly report, set-up checklist & dashboard widget', 'Every Monday the plugin emails whoever runs the store a short report of what it did that week — real numbers from your own database, week-over-week, with the next set-up step to take. Change the recipient, send a test or switch it off from the plugin\'s Settings tab (needs the host\'s `SMTP_*` settings). The same numbers sit in a Vendure dashboard widget (Dashboard → Add widget) and the plugin page opens with a set-up checklist that hides itself once everything is done.'),
     ('One-click in-app updates', 'When a new version ships, an update banner shows current → latest with a What\'s-new link to the changelog. "Update now" installs the registry-verified release via your project\'s own package manager (yarn/npm/pnpm auto-detected) and gracefully restarts under pm2/systemd. Disable with `HULO_SELF_UPDATE=off`.'),
 ]
@@ -204,6 +204,24 @@ def npm_downloads_last_month(pkg: str):
     except Exception:
         n = None
     _DOWNLOADS_CACHE[pkg] = n
+    return n
+
+_YTD_CACHE: dict = {}
+
+def npm_downloads_this_year(pkg: str):
+    """Downloads from 1 January to yesterday (npm's own count), or None."""
+    if pkg in _YTD_CACHE:
+        return _YTD_CACHE[pkg]
+    import datetime
+    today = datetime.date.today()
+    rng = f"{today.year}-01-01:{(today - datetime.timedelta(days=1)).isoformat()}"
+    try:
+        import urllib.request, json as _json
+        with urllib.request.urlopen(f'https://api.npmjs.org/downloads/point/{rng}/{pkg}', timeout=8) as r:
+            n = _json.load(r).get('downloads')
+    except Exception:
+        n = None
+    _YTD_CACHE[pkg] = n
     return n
 
 def common_endpoints(slug: str):
@@ -1170,8 +1188,11 @@ def index_page():
     def card_meta(p):
         bits = []
         dl = npm_downloads_last_month(p['pkg'])
+        ytd = npm_downloads_this_year(p['pkg'])
         if dl:
             bits.append(f'{dl:,} downloads/mo')
+        if ytd:
+            bits.append(f'{ytd:,} this year')
         if p['slug'] in VENDURE_DIRECTORY_LISTED:
             bits.append('<a href="https://docs.vendure.io/plugins" class="underline underline-offset-2">Vendure directory</a>')
         elif p['slug'] in VENDURE_DIRECTORY_SUBMITTED:
@@ -1495,8 +1516,11 @@ export const config: VendureConfig = {{
     # Proof strip under the tagline: real numbers only.
     proof_items = []
     dl = npm_downloads_last_month(p['pkg'])
+    ytd = npm_downloads_this_year(p['pkg'])
     if dl:
         proof_items.append(f'<a href="https://www.npmjs.com/package/{p["pkg"]}" class="vp-proof-item">{dl:,} npm downloads last month</a>')
+    if ytd:
+        proof_items.append(f'<a href="https://npm-stat.com/charts.html?package={p["pkg"]}" class="vp-proof-item">{ytd:,} downloads in {__import__("datetime").date.today().year}</a>')
     if p['slug'] in VENDURE_DIRECTORY_LISTED:
         proof_items.append('<a href="https://docs.vendure.io/plugins" class="vp-proof-item">Listed in the Vendure plugin directory</a>')
     elif p['slug'] in VENDURE_DIRECTORY_SUBMITTED:
