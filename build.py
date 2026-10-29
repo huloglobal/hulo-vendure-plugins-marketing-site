@@ -1155,7 +1155,7 @@ FOOTER = CURRENCY_JS + VERSION_REFRESH_JS + '''
 <p class="text-xs uppercase tracking-wider text-ink-500 font-semibold mb-3">Vendure plugins</p>
 <ul class="space-y-1.5 text-sm text-ink-700">
 <li><a href="/vendure-plugins/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">All plugins</a></li>
-<li><a href="/wordpress-plugins/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">WooCommerce plugins</a></li>
+<li><a href="/wordpress-plugins/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">WordPress plugins</a></li>
 <li><a href="/vendure-plugins/email-tracking/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Email Tracking</a></li>
 <li><a href="/vendure-plugins/geo-block/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Geo Block</a></li>
 <li><a href="/vendure-plugins/visitor-analytics/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Visitor Analytics</a></li>

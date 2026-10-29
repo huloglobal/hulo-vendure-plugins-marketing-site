@@ -1,5 +1,5 @@
 """huloglobal.com/wordpress-plugins/: pages, downloads and update manifests
-for the WooCommerce editions.
+for the WordPress editions (WooCommerce optional).
 
 Page copy comes from each plugin's own readme.txt (free plugin and Pro add-on)
 in /root/hulo-woo-plugins, so the site always says what the code does. Prices
@@ -121,7 +121,7 @@ def load(slug: str) -> dict:
     pro = parse_readme(WOO / 'plugins' / f'hulo-{slug}-pro' / 'readme.txt')
     fver, fzip, fman = dist_files(slug)
     pver, pzip, pman = dist_files(slug + '-pro')
-    title = re.sub(r'^HULO\s+|\s+for WooCommerce$', '', free['name'])
+    title = re.sub(r'^HULO\s+|\s+for (WooCommerce|WordPress)$', '', free['name'])
     return {'slug': slug, 'title': title, 'free': free, 'pro': pro, 'fver': fver, 'fzip': fzip, 'fman': fman,
             'pver': pver, 'pzip': pzip, 'pman': pman, 'pricing': pricing_for(slug)}
 
@@ -135,7 +135,7 @@ def free_download_html(p: dict) -> str:
 
 def plugin_page(p: dict) -> str:
     free, pro, gbp = p['free'], p['pro'], p['pricing']['GBP']
-    buy = f'{vp.BUY_BASE}/woocommerce-{p["slug"]}'
+    buy = f'{vp.BUY_BASE}/wordpress-{p["slug"]}'
     pro_zip = f'{BASE}/{p["slug"]}-pro/hulo-{p["slug"]}-pro-{p["pver"]}.zip'
     fs, ps = free['sections'], pro['sections']
     install = md(fs.get('Installation', ''))
@@ -149,11 +149,11 @@ def plugin_page(p: dict) -> str:
 <div class="container-page relative pt-12 pb-10 md:pt-16 md:pb-14">
 <img class="vp-plugin-logo" src="/vendure-plugins/logos/{p['slug']}.svg" alt="" width="56" height="56" aria-hidden="true">
 <nav class="mb-5 text-sm text-ink-600">
-<a href="{BASE}/" class="hover:text-ink-900">WooCommerce plugins</a>
+<a href="{BASE}/" class="hover:text-ink-900">WordPress plugins</a>
 <span class="mx-2 text-ink-400">/</span>
 <span class="text-ink-900 font-medium">{html.escape(p['title'])}</span>
 </nav>
-<h1 class="max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])} for WooCommerce</h1>
+<h1 class="max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])} for WordPress</h1>
 <p class="mt-6 max-w-2xl text-lg md:text-xl text-ink-600 leading-relaxed">{inline(free['short'])}</p>
 <div class="mt-8 flex flex-wrap items-center gap-3">
 {free_download_html(p)}
@@ -161,7 +161,7 @@ def plugin_page(p: dict) -> str:
 <a href="#pricing" class="btn btn-secondary">Pricing</a>
 <a href="#changelog" class="ml-auto text-xs text-ink-500 font-mono hover:underline">v{p['fver']}</a>
 </div>
-<p class="mt-4 text-sm text-ink-600">Requires WordPress {html.escape(free['headers'].get('Requires at least', '6.5'))}+, WooCommerce {html.escape(free['headers'].get('WC requires at least', '9.0'))}+ and PHP {html.escape(free['headers'].get('Requires PHP', '8.1'))}+. HPOS and the Cart/Checkout blocks are supported.</p>
+<p class="mt-4 text-sm text-ink-600">Requires WordPress {html.escape(free['headers'].get('Requires at least', '6.5'))}+ and PHP {html.escape(free['headers'].get('Requires PHP', '8.1'))}+. Works on any WordPress site; WooCommerce is optional and switches on the shop features.</p>
 </div>
 </section>
 
@@ -190,7 +190,7 @@ def plugin_page(p: dict) -> str:
 <div class="rounded-lg border border-accent-300 bg-accent-50 p-6"><p class="text-xs font-semibold uppercase tracking-wider text-accent-700">Pro, monthly or annual</p><p class="vp-price-num mt-2">{html.escape(gbp['monthly'])}<small>/month</small></p><p class="mt-2 text-sm text-ink-700">The first 14 days are free with no card. Subscribe from the plugin page when you're ready; the first charge is taken when the 14 days end. Annual billing gets two months free. Cancel any time.</p><a href="{buy}?plan=monthly" class="btn btn-primary mt-5">Subscribe</a></div>
 <div class="rounded-lg border border-ink-200 bg-white p-6"><p class="text-xs font-semibold uppercase tracking-wider text-ink-500">Pro, lifetime</p><p class="vp-price-num mt-2">{html.escape(gbp['lifetime'])}</p><p class="mt-2 text-sm text-ink-700">One payment for one store, including updates.</p><a href="{buy}?plan=lifetime" class="btn btn-secondary mt-5">Buy lifetime</a></div>
 </div>
-<p class="mt-4 text-xs text-ink-500">Prices in GBP; the checkout also bills in USD, EUR, AUD and CAD. One licence covers one WooCommerce store.</p>
+<p class="mt-4 text-xs text-ink-500">Prices in GBP; the checkout also bills in USD, EUR, AUD and CAD. One licence covers one WordPress site.</p>
 </div>
 </section>
 
@@ -219,7 +219,7 @@ def plugin_page(p: dict) -> str:
 </div>
 </section>
 '''
-    title = f'{p["title"]} for WooCommerce: free plugin and Pro add-on · Hulo Global'
+    title = f'{p["title"]} for WordPress: free plugin and Pro add-on · Hulo Global'
     return vp.header(title, f'https://huloglobal.com{BASE}/{p["slug"]}/', free['short']) + wp_nav() + body + footer()
 
 
@@ -234,9 +234,9 @@ def index_page(items: list[dict]) -> str:
     body = f'''
 <section class="vp-hero">
 <div class="container-page relative pt-12 pb-10 md:pt-16 md:pb-14">
-<h1 class="max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">WooCommerce plugins</h1>
+<h1 class="max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">WordPress plugins</h1>
 <p class="mt-6 max-w-2xl text-lg md:text-xl text-ink-600 leading-relaxed">Nine plugins for payments, checkout security, fraud screening, trade credit, quotations, e-mail, reviews, analytics and geo-blocking. Each one is a free plugin that does the job on its own, plus a Pro add-on you can try for 14 days without a card.</p>
-<p class="mt-4 text-sm text-ink-600">Built for WordPress 6.5+, WooCommerce 9+ and PHP 8.1+, with HPOS and the Cart/Checkout blocks supported. No other plugins required. Also available <a href="/vendure-plugins/" class="underline underline-offset-4">for Vendure</a>.</p>
+<p class="mt-4 text-sm text-ink-600">Built for WordPress 6.5+ and PHP 8.1+, and they work on any WordPress site. WooCommerce is optional: when it's installed, the shop features switch on too (HPOS and the Cart/Checkout blocks supported). No other plugins required. Also available <a href="/vendure-plugins/" class="underline underline-offset-4">for Vendure</a>.</p>
 </div>
 </section>
 <section class="vp-section bg-white">
@@ -247,8 +247,8 @@ def index_page(items: list[dict]) -> str:
 </div>
 </section>
 '''
-    return (vp.header('WooCommerce plugins · Hulo Global', f'https://huloglobal.com{BASE}/',
-                      'Free WooCommerce plugins with Pro add-ons: payments, checkout guard, fraud prevention, business credit, quotations, e-mail tracking, review requests, visitor analytics and geo-blocking.')
+    return (vp.header('WordPress plugins · Hulo Global', f'https://huloglobal.com{BASE}/',
+                      'Free WordPress plugins with Pro add-ons (WooCommerce optional): payments, checkout guard, fraud prevention, business credit, quotations, e-mail tracking, review requests, visitor analytics and geo-blocking.')
             + wp_nav() + body + footer())
 
 
@@ -265,7 +265,7 @@ def pro_stub(p: dict) -> str:
     url = f'{BASE}/{p["slug"]}/'
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{html.escape(p["title"])} Pro</title>'
             f'<link rel="canonical" href="https://huloglobal.com{url}"><meta http-equiv="refresh" content="0; url={url}">'
-            f'</head><body><a href="{url}">{html.escape(p["title"])} for WooCommerce</a></body></html>')
+            f'</head><body><a href="{url}">{html.escape(p["title"])} for WordPress</a></body></html>')
 
 
 def main():
@@ -285,7 +285,7 @@ def main():
         (dp / 'index.html').write_text(pro_stub(p), encoding='utf-8')
         shutil.copy2(p['pzip'], dp / p['pzip'].name)
         shutil.copy2(p['pman'], dp / 'update.json')
-    print(f'Wrote {len(items)} WooCommerce plugin pages, {2 * len(items)} zips and manifests to {OUT}')
+    print(f'Wrote {len(items)} WordPress plugin pages, {2 * len(items)} zips and manifests to {OUT}')
 
 
 if __name__ == '__main__':
