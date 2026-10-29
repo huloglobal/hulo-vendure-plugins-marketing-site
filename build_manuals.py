@@ -556,7 +556,7 @@ yarn migration:run</div>
     eventType: <span class="s">'checkout_completed'</span>, orderCode, totalMinor,
   }} }}], <span class="c">/* useBeacon */</span> <span class="k">true</span>);
 }}</div>
-<p>See the <a href="https://github.com/exceeded/vendure-plugin-visitor-analytics">plugin README</a> for the full implementation including the send() batcher and the auto rage/dead-click detectors.</p>
+<p>See the <a href="https://github.com/huloglobal/vendure-plugin-visitor-analytics">plugin README</a> for the full implementation including the send() batcher and the auto rage/dead-click detectors.</p>
 <h3>Where to call the helpers</h3>
 <table>
 <thead><tr><th>Helper</th><th>Where to call</th><th>Feeds</th></tr></thead>
