@@ -40,20 +40,21 @@ echo "→ Build"
 python3 build.py
 python3 build_manuals.py
 python3 build_legal.py
+python3 build_wordpress.py
 
 echo
 echo "→ Tar"
 TARBALL=$(mktemp -t hulo-vp-XXXX.tgz)
-tar czf "$TARBALL" -C dist vendure-plugins legal
+tar czf "$TARBALL" -C dist vendure-plugins wordpress-plugins legal
 
 echo "→ Upload to $BOX"
 if [[ -n "${SSHPASS:-}" ]]; then
     sshpass -e scp -q -o StrictHostKeyChecking=no "$TARBALL" "$BOX:/tmp/vp-pages.tgz"
     sshpass -e ssh -q -o StrictHostKeyChecking=no "$BOX" "
         set -e
-        rm -rf $ROOT/vendure-plugins $ROOT/legal
+        rm -rf $ROOT/vendure-plugins $ROOT/wordpress-plugins $ROOT/legal
         tar xzf /tmp/vp-pages.tgz -C $ROOT
-        chown -R huloglobal:huloglobal $ROOT/vendure-plugins $ROOT/legal
+        chown -R huloglobal:huloglobal $ROOT/vendure-plugins $ROOT/wordpress-plugins $ROOT/legal
         chmod +x $ROOT/vendure-plugins/*/install.sh
         rm /tmp/vp-pages.tgz
     "
@@ -61,9 +62,9 @@ else
     scp -q "$TARBALL" "$BOX:/tmp/vp-pages.tgz"
     ssh -q "$BOX" "
         set -e
-        rm -rf $ROOT/vendure-plugins $ROOT/legal
+        rm -rf $ROOT/vendure-plugins $ROOT/wordpress-plugins $ROOT/legal
         tar xzf /tmp/vp-pages.tgz -C $ROOT
-        chown -R huloglobal:huloglobal $ROOT/vendure-plugins $ROOT/legal
+        chown -R huloglobal:huloglobal $ROOT/vendure-plugins $ROOT/wordpress-plugins $ROOT/legal
         chmod +x $ROOT/vendure-plugins/*/install.sh
         rm /tmp/vp-pages.tgz
     "
@@ -74,6 +75,9 @@ echo
 echo "→ Verify live"
 for url in \
     "https://huloglobal.com/vendure-plugins/" \
+    "https://huloglobal.com/wordpress-plugins/" \
+    "https://huloglobal.com/wordpress-plugins/geo-block/" \
+    "https://huloglobal.com/wordpress-plugins/geo-block-pro/update.json" \
     "https://huloglobal.com/vendure-plugins/email-tracking/" \
     "https://huloglobal.com/vendure-plugins/geo-block/" \
     "https://huloglobal.com/vendure-plugins/visitor-analytics/" \
@@ -108,9 +112,9 @@ fi
 
 echo
 echo "→ Git"
-if ! git diff --quiet -- build.py build_manuals.py deploy.sh README.md 2>/dev/null \
-   || ! git diff --cached --quiet -- build.py build_manuals.py deploy.sh README.md 2>/dev/null; then
-    git add build.py build_manuals.py build_legal.py deploy.sh README.md 2>/dev/null || true
+if ! git diff --quiet -- build.py build_manuals.py build_wordpress.py deploy.sh README.md 2>/dev/null \
+   || ! git diff --cached --quiet -- build.py build_manuals.py build_wordpress.py deploy.sh README.md 2>/dev/null; then
+    git add build.py build_manuals.py build_legal.py build_wordpress.py deploy.sh README.md 2>/dev/null || true
     if [[ -z "$MSG" ]]; then
         MSG="Deploy marketing site — $(date -u +%Y-%m-%d)"
     fi
