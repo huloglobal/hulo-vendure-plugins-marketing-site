@@ -116,6 +116,14 @@ def dist_files(name: str) -> tuple[str, Path, Path]:
     return ver, z, manifest
 
 
+def fingerprint(path: Path) -> str:
+    """Short content hash for download URLs: the version stays put during
+    WordPress.org review, so a fresh query string is what stops Cloudflare
+    serving a stale zip from its cache."""
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+
+
 def load(slug: str) -> dict:
     free = parse_readme(WOO / 'plugins' / f'hulo-{slug}' / 'readme.txt')
     pro = parse_readme(WOO / 'plugins' / f'hulo-{slug}-pro' / 'readme.txt')
@@ -123,13 +131,13 @@ def load(slug: str) -> dict:
     pver, pzip, pman = dist_files(slug + '-pro')
     title = re.sub(r'^HULO\s+|\s+for (WooCommerce|WordPress)$', '', free['name'])
     return {'slug': slug, 'title': title, 'free': free, 'pro': pro, 'fver': fver, 'fzip': fzip, 'fman': fman,
-            'pver': pver, 'pzip': pzip, 'pman': pman, 'pricing': pricing_for(slug)}
+            'pver': pver, 'pzip': pzip, 'pman': pman, 'fv': fingerprint(fzip), 'pv': fingerprint(pzip), 'pricing': pricing_for(slug)}
 
 
 def free_download_html(p: dict) -> str:
     if p['slug'] in WPORG_LISTED:
         return (f'<a href="https://wordpress.org/plugins/hulo-{p["slug"]}/" class="btn btn-secondary">Free plugin on WordPress.org</a>')
-    return (f'<a href="{BASE}/{p["slug"]}/hulo-{p["slug"]}-{p["fver"]}.zip" class="btn btn-secondary" download>'
+    return (f'<a href="{BASE}/{p["slug"]}/hulo-{p["slug"]}-{p["fver"]}.zip?v={p["fv"]}" class="btn btn-secondary" download>'
             f'Download free plugin (v{p["fver"]})</a>')
 
 
@@ -164,7 +172,7 @@ def sections(blocks: list[tuple[str, str]]) -> str:
 def plugin_page(p: dict) -> str:
     free, pro, gbp = p['free'], p['pro'], p['pricing']['GBP']
     buy = f'{vp.BUY_BASE}/wordpress-{p["slug"]}'
-    pro_zip = f'{BASE}/{p["slug"]}-pro/hulo-{p["slug"]}-pro-{p["pver"]}.zip'
+    pro_zip = f'{BASE}/{p["slug"]}-pro/hulo-{p["slug"]}-pro-{p["pver"]}.zip?v={p["pv"]}'
     fs, ps = free['sections'], pro['sections']
     install = md(fs.get('Installation', ''))
     pro_desc = md(ps.get('Description', ''))
@@ -264,6 +272,13 @@ def footer() -> str:
     return vp.FOOTER
 
 
+def write_manifest(src: Path, dest: Path, fv: str) -> None:
+    """update.json with a fingerprinted download URL (see fingerprint())."""
+    m = json.loads(src.read_text())
+    m['download_url'] = m['download_url'].split('?')[0] + '?v=' + fv
+    dest.write_text(json.dumps(m, indent=2), encoding='utf-8')
+
+
 def pro_stub(p: dict) -> str:
     """Pro's update.json points its homepage at <slug>-pro/; send people to the plugin page."""
     url = f'{BASE}/{p["slug"]}/'
@@ -283,12 +298,12 @@ def main():
         d.mkdir()
         (d / 'index.html').write_text(plugin_page(p), encoding='utf-8')
         shutil.copy2(p['fzip'], d / p['fzip'].name)
-        shutil.copy2(p['fman'], d / 'update.json')
+        write_manifest(p['fman'], d / 'update.json', p['fv'])
         dp = OUT / (p['slug'] + '-pro')
         dp.mkdir()
         (dp / 'index.html').write_text(pro_stub(p), encoding='utf-8')
         shutil.copy2(p['pzip'], dp / p['pzip'].name)
-        shutil.copy2(p['pman'], dp / 'update.json')
+        write_manifest(p['pman'], dp / 'update.json', p['pv'])
     print(f'Wrote {len(items)} WordPress plugin pages, {2 * len(items)} zips and manifests to {OUT}')
 
 
