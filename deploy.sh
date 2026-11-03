@@ -41,6 +41,9 @@ python3 build.py
 python3 build_manuals.py
 python3 build_legal.py
 python3 build_wordpress.py
+# Stylesheet for all generated pages, compiled from huloglobal.com's
+# Tailwind theme against the HTML just written (see build_css.mjs).
+node build_css.mjs
 
 echo
 echo "→ Tar"
@@ -112,9 +115,9 @@ fi
 
 echo
 echo "→ Git"
-if ! git diff --quiet -- build.py build_manuals.py build_wordpress.py deploy.sh README.md 2>/dev/null \
-   || ! git diff --cached --quiet -- build.py build_manuals.py build_wordpress.py deploy.sh README.md 2>/dev/null; then
-    git add build.py build_manuals.py build_legal.py build_wordpress.py deploy.sh README.md 2>/dev/null || true
+if ! git diff --quiet -- build.py build_manuals.py build_legal.py build_wordpress.py build_css.mjs deploy.sh README.md 2>/dev/null \
+   || ! git diff --cached --quiet -- build.py build_manuals.py build_legal.py build_wordpress.py build_css.mjs deploy.sh README.md 2>/dev/null; then
+    git add build.py build_manuals.py build_legal.py build_wordpress.py build_css.mjs deploy.sh README.md 2>/dev/null || true
     if [[ -z "$MSG" ]]; then
         MSG="Deploy marketing site — $(date -u +%Y-%m-%d)"
     fi

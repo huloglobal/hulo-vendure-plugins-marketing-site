@@ -13,103 +13,62 @@ import textwrap
 
 HERE = Path(__file__).parent
 OUT = HERE / 'dist' / 'vendure-plugins'
-ASTRO_CSS = '/_astro/index@_@astro.CpJRZGi5.css'
+import build as vp
 
-DOC_HEAD = '''<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>{title}</title>
-<meta name="description" content="{description}">
-<link rel="canonical" href="{canonical}">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
-<link rel="stylesheet" href="''' + ASTRO_CSS + '''">
+DOC_STYLE = '''
 <style>
-.doc {{ display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }}
-@media (min-width: 1024px) {{ .doc {{ grid-template-columns: 240px minmax(0, 1fr); gap: 48px; align-items: start; }} }}
-.doc-body {{ min-width: 0; }}
-.doc-toc {{ position: sticky; top: 96px; }}
-.doc-toc ul {{ list-style: none; padding: 0; margin: 0; }}
-.doc-toc li {{ margin-bottom: 6px; }}
-.doc-toc a {{ display: block; padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--color-ink-700, #334155); text-decoration: none; }}
-.doc-toc a:hover {{ background: var(--color-ink-50, #f8fafc); color: var(--color-ink-900); }}
-.doc-toc a.lvl-2 {{ padding-left: 22px; font-size: 12px; color: var(--color-ink-500, #64748b); }}
-.doc-body h2 {{ margin-top: 48px; font-size: 28px; font-weight: 700; color: var(--color-ink-900, #0f172a); scroll-margin-top: 96px; }}
-.doc-body h2:first-child {{ margin-top: 0; }}
-.doc-body h3 {{ margin-top: 28px; font-size: 20px; font-weight: 600; color: var(--color-ink-900); scroll-margin-top: 96px; }}
-.doc-body p {{ font-size: 16px; line-height: 1.7; color: var(--color-ink-700, #334155); margin: 16px 0; }}
-.doc-body ul, .doc-body ol {{ font-size: 16px; line-height: 1.75; color: var(--color-ink-700); padding-left: 22px; margin: 12px 0; }}
-.doc-body li {{ margin: 6px 0; }}
-.doc-body code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: var(--color-ink-50, #f8fafc); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-ink-100, #e2e8f0); color: var(--color-ink-900); }}
-.doc-code {{ background: #0f172a; color: #f1f5f9; padding: 18px 22px; border-radius: 10px; font-size: 13px; line-height: 1.6; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; margin: 18px 0; }}
-.doc-code .c {{ color: #64748b; }}
-.doc-code .k {{ color: #fbbf24; }}
-.doc-code .s {{ color: #86efac; }}
-.callout {{ background: var(--color-accent-50, #fffbeb); border-left: 4px solid var(--color-accent-500, #f59e0b); border-radius: 8px; padding: 14px 18px; margin: 18px 0; font-size: 14px; color: var(--color-ink-800, #1e293b); }}
-.callout.warn {{ background: #fef2f2; border-color: #ef4444; }}
-.screenshot {{ margin: 22px 0; border: 1px solid var(--color-ink-200, #e2e8f0); border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.08); }}
-.screenshot-caption {{ padding: 10px 14px; background: var(--color-ink-50, #f8fafc); border-top: 1px solid var(--color-ink-100); font-size: 12px; color: var(--color-ink-600); text-align: center; }}
-.doc-body .table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 18px 0; border: 1px solid var(--color-ink-100); border-radius: 10px; max-width: 100%; }}
-.doc-body .table-wrap::-webkit-scrollbar {{ height: 8px; }}
-.doc-body .table-wrap::-webkit-scrollbar-thumb {{ background: var(--color-ink-300, #cbd5e1); border-radius: 4px; }}
-.doc-body table {{ width: max-content; min-width: 100%; border-collapse: collapse; font-size: 14px; margin: 0; }}
-.doc-body th, .doc-body td {{ text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--color-ink-100); white-space: nowrap; }}
-.doc-body td {{ white-space: normal; max-width: 380px; }}
-.doc-body tr:last-child th, .doc-body tr:last-child td {{ border-bottom: 0; }}
-.doc-body th {{ background: var(--color-ink-50); font-weight: 600; color: var(--color-ink-900); }}
-.doc-body td code {{ background: transparent; border: 0; padding: 0; font-size: 13px; white-space: nowrap; }}
+.doc { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+@media (min-width: 1024px) { .doc { grid-template-columns: 240px minmax(0, 1fr); gap: 48px; align-items: start; } }
+.doc-body { min-width: 0; }
+.doc-toc { position: sticky; top: 96px; }
+.doc-toc ul { list-style: none; padding: 0; margin: 0; }
+.doc-toc li { margin-bottom: 6px; }
+.doc-toc a { display: block; padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--color-ink-700, #334155); text-decoration: none; }
+.doc-toc a:hover { background: var(--color-ink-50, #f8fafc); color: var(--color-ink-900); }
+.doc-toc a.lvl-2 { padding-left: 22px; font-size: 12px; color: var(--color-ink-500, #64748b); }
+.doc-body section + section { margin-top: 56px; }
+.doc-body h2 { margin-top: 0; font-size: 28px; font-weight: 700; color: var(--color-ink-900, #0f172a); scroll-margin-top: 96px; }
+.doc-body h2:first-child { margin-top: 0; }
+.doc-body h3 { margin-top: 28px; font-size: 20px; font-weight: 600; color: var(--color-ink-900); scroll-margin-top: 96px; }
+.doc-body p { font-size: 16px; line-height: 1.7; color: var(--color-ink-700, #334155); margin: 16px 0; }
+.doc-body ul, .doc-body ol { font-size: 16px; line-height: 1.75; color: var(--color-ink-700); padding-left: 22px; margin: 12px 0; }
+.doc-body li { margin: 6px 0; }
+.doc-body code { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: var(--color-ink-50, #f8fafc); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-ink-100, #e2e8f0); color: var(--color-ink-900); }
+.doc-code { background: #0f172a; color: #f1f5f9; padding: 18px 22px; border-radius: 10px; font-size: 13px; line-height: 1.6; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; margin: 18px 0; }
+.doc-code .c { color: #a3b1c6; }
+.doc-code .k { color: #fbbf24; }
+.doc-code .s { color: #86efac; }
+.callout { background: var(--color-accent-50, #fffbeb); border-left: 4px solid var(--color-accent-500, #f59e0b); border-radius: 8px; padding: 14px 18px; margin: 18px 0; font-size: 14px; color: var(--color-ink-800, #1e293b); }
+.callout.warn { background: #fef2f2; border-color: #ef4444; }
+.screenshot { margin: 22px 0; border: 1px solid var(--color-ink-200, #e2e8f0); border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.08); }
+.screenshot-caption { padding: 10px 14px; background: var(--color-ink-50, #f8fafc); border-top: 1px solid var(--color-ink-100); font-size: 12px; color: var(--color-ink-600); text-align: center; }
+.doc-body .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 18px 0; border: 1px solid var(--color-ink-100); border-radius: 10px; max-width: 100%; }
+.doc-body .table-wrap::-webkit-scrollbar { height: 8px; }
+.doc-body .table-wrap::-webkit-scrollbar-thumb { background: var(--color-ink-300, #cbd5e1); border-radius: 4px; }
+.doc-body table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 14px; margin: 0; }
+.doc-body th, .doc-body td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--color-ink-100); white-space: nowrap; vertical-align: top; }
+.doc-body td { white-space: normal; max-width: 380px; }
+.doc-body tr:last-child th, .doc-body tr:last-child td { border-bottom: 0; }
+.doc-body th { background: var(--color-ink-50); font-weight: 600; color: var(--color-ink-900); }
+.doc-body td code { background: transparent; border: 0; padding: 0; font-size: 13px; overflow-wrap: anywhere; }
 /* Screenshot SVGs scale to viewport — no min-width so they shrink on mobile. */
-.doc-body .screenshot {{ max-width: 100%; }}
-.doc-body .screenshot svg {{ width: 100%; max-width: 100%; height: auto; display: block; }}
-.doc-body .doc-code {{ overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }}
+.doc-body .screenshot { max-width: 100%; }
+.doc-body .screenshot svg { width: 100%; max-width: 100%; height: auto; display: block; }
+.doc-body .doc-code { white-space: pre; }
+.doc-body pre.doc-code code { background: transparent; border: 0; padding: 0; color: inherit; font-size: inherit; overflow-wrap: normal; }
+.doc-body .doc-code { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
 /* TOC: stay inside its column on mobile, hide horizontally if anything spills */
-.doc-toc {{ min-width: 0; }}
-.doc-toc ul, .doc-toc li, .doc-toc a {{ max-width: 100%; }}
-.doc-toc a {{ min-height: 40px; }}
+.doc-toc { min-width: 0; }
+.doc-toc ul, .doc-toc li, .doc-toc a { max-width: 100%; }
+.doc-toc a { min-height: 40px; }
 /* On mobile the TOC is a thin top-of-page block, not a full sidebar */
-@media (max-width: 1023px) {{
-    .doc-toc {{ background: var(--color-ink-50, #f8fafc); border-radius: 12px; padding: 14px 16px; position: relative !important; top: auto; }}
-    .doc-toc ul {{ display: flex; flex-wrap: wrap; gap: 6px; }}
-    .doc-toc li {{ margin: 0; }}
-    .doc-toc a {{ padding: 8px 12px; min-height: 36px; background: #fff; border: 1px solid var(--color-ink-100); border-radius: 6px; font-size: 13px; }}
-}}
+@media (max-width: 1023px) {
+    .doc-toc { background: var(--color-ink-50, #f8fafc); border-radius: 12px; padding: 14px 16px; position: relative !important; top: auto; }
+    .doc-toc ul { display: flex; flex-wrap: wrap; gap: 6px; }
+    .doc-toc li { margin: 0; }
+    .doc-toc a { padding: 8px 12px; min-height: 36px; background: #fff; border: 1px solid var(--color-ink-100); border-radius: 6px; font-size: 13px; }
+}
 </style>
-</head>
-<body>
-<a href="#main" class="skip-link">Skip to content</a>
-<header class="sticky top-0 z-40 border-b border-ink-100 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70">
-<div class="container-page flex items-center justify-between py-4">
-<a href="/" class="flex items-center gap-2.5 group">
-<span class="grid size-9 place-items-center rounded-lg bg-ink-900 text-white font-bold tracking-tight text-sm">HG</span>
-<span class="font-bold text-ink-900 tracking-tight text-lg">Hulo Global</span>
-</a>
-<nav class="hidden md:block">
-<ul class="flex items-center gap-6 text-sm font-medium text-ink-700">
-<li><a href="/" class="hover:text-ink-900 py-3 px-2 inline-block">Home</a></li>
-<li><a href="/vendure-plugins/" class="hover:text-ink-900 py-3 px-2 inline-block">Vendure plugins</a></li>
-<li><a href="/vendure-plugins/{slug}/" class="hover:text-ink-900 py-3 px-2 inline-block">← Back to {title_short}</a></li>
-</ul>
-</nav>
-</div>
-</header>
-<main id="main" class="container-page py-12 md:py-16">
-<nav class="mb-6 text-sm text-ink-600">
-<a href="/vendure-plugins/" class="hover:text-ink-900">Vendure plugins</a>
-<span class="mx-2 text-ink-400">/</span>
-<a href="/vendure-plugins/{slug}/" class="hover:text-ink-900">{title_short}</a>
-<span class="mx-2 text-ink-400">/</span>
-<span class="text-ink-900 font-medium">Manual</span>
-</nav>
-<h1 class="text-4xl md:text-5xl font-bold tracking-tight text-ink-900 mb-8">{title_short} — User Manual</h1>
-<div class="doc">
-'''
-
-DOC_FOOT = '''
-</div>
-</main>
-</body>
-</html>
 '''
 
 
@@ -197,21 +156,21 @@ EMAIL_TRACKING_MANUAL = {
 yarn add @huloglobal/vendure-plugin-email-tracking
 
 <span class="c"># 2. Register in vendure-config.ts</span>
-import {{ <span class="k">EmailTrackingPlugin</span>, <span class="k">TrackingEmailSender</span> }} from <span class="s">'@huloglobal/vendure-plugin-email-tracking'</span>;
+import { <span class="k">EmailTrackingPlugin</span>, <span class="k">TrackingEmailSender</span> } from <span class="s">'@huloglobal/vendure-plugin-email-tracking'</span>;
 
-export const config: VendureConfig = {{
+export const config: VendureConfig = {
   plugins: [
-    <span class="k">EmailTrackingPlugin</span>.init({{
+    <span class="k">EmailTrackingPlugin</span>.init({
       publicBaseUrl: <span class="s">'https://shop.example.com'</span>,
       licenceKey: process.env.<span class="k">HULO_LICENCE_KEY_EMAIL_TRACKING</span>,
-    }}),
+    }),
     <span class="c">// also pass TrackingEmailSender to the @vendure/email-plugin:</span>
-    EmailPlugin.init({{
+    EmailPlugin.init({
       emailSender: new <span class="k">TrackingEmailSender</span>(),
       <span class="c">// ... your existing email-plugin options ...</span>
-    }}),
+    }),
   ],
-}};
+};
 
 <span class="c"># 3. Generate + run migration</span>
 yarn migration:generate AddEmailTrackingTables
@@ -249,7 +208,7 @@ yarn migration:run</div>
 <h3>Adding entries manually</h3>
 <div class="doc-code">curl -X POST https://shop.example.com/email-track/suppression \\
   -H "Content-Type: application/json" \\
-  -d '{{"recipient":"angry@example.com","reason":"manual","note":"Asked to be removed via support"}}'</div>
+  -d '{"recipient":"angry@example.com","reason":"manual","note":"Asked to be removed via support"}'</div>
 <h3>Lifting a suppression</h3>
 <div class="doc-code">curl -X DELETE https://shop.example.com/email-track/suppression/angry@example.com</div>
 <h3>Listing the table</h3>
@@ -257,21 +216,21 @@ yarn migration:run</div>
 '''),
         ('webhook', 'Bounce webhook', '''
 <p>Wire your postmaster integration (or scheduled DSN parser) to POST to <code>/email-track/bounce</code>:</p>
-<div class="doc-code">{{
+<div class="doc-code">{
   "messageId": "&lt;abc@gmail.com&gt;",       <span class="c">// the smtpMessageId from the original send</span>
   "status": "bounced",                       <span class="c">// or 'complained'</span>
   "reason": "550 5.1.1 The email account ..."
-}}</div>
+}</div>
 <p>The matching <code>email_log</code> row is updated and the recipient is auto-added to the suppression list. The endpoint is unauthenticated — gate it behind a shared secret header if you expose it to the public internet.</p>
 '''),
         ('analytics', 'Per-template analytics', '''
 <p>For an aggregated view of how each email <em>type</em> performs, hit:</p>
 <div class="doc-code">GET /email-track/log/stats/by-template?fromDays=30</div>
 <p>Returns:</p>
-<div class="doc-code">{{
+<div class="doc-code">{
   "days": 30,
   "types": [
-    {{
+    {
       "type": "order-confirmation",
       "sent": 1247,
       "opened": 540,
@@ -282,10 +241,10 @@ yarn migration:run</div>
       "openRate": 0.433,
       "clickRate": 0.070,
       "ctor": 0.161             <span class="c">// click-to-open</span>
-    }},
+    },
     ...
   ]
-}}</div>
+}</div>
 '''),
         ('csv-export', 'CSV export', '''
 <p>The list endpoint has a CSV mirror. Same filters, same shape:</p>
@@ -345,22 +304,22 @@ GEO_BLOCK_MANUAL = {
 yarn add @huloglobal/vendure-plugin-geo-block
 
 <span class="c"># 2. Register in vendure-config.ts</span>
-import {{ <span class="k">GeoBlockPlugin</span> }} from <span class="s">'@huloglobal/vendure-plugin-geo-block'</span>;
+import { <span class="k">GeoBlockPlugin</span> } from <span class="s">'@huloglobal/vendure-plugin-geo-block'</span>;
 
-export const config: VendureConfig = {{
+export const config: VendureConfig = {
   plugins: [
-    <span class="k">GeoBlockPlugin</span>.init({{
+    <span class="k">GeoBlockPlugin</span>.init({
       publicBaseUrl: <span class="s">'https://shop.example.com'</span>,
       licenceKey: process.env.<span class="k">HULO_LICENCE_KEY_GEO_BLOCK</span>,
       <span class="c">// Optional: a one-shot maintenance lockdown window</span>
-      maintenanceWindow: {{
+      maintenanceWindow: {
         startsAt: <span class="s">'2026-07-15T02:00:00Z'</span>,
         endsAt:   <span class="s">'2026-07-15T04:00:00Z'</span>,
         allowedIps: [<span class="s">'203.0.113.0/24'</span>],
-      }},
-    }}),
+      },
+    }),
   ],
-}};
+};
 
 <span class="c"># 3. Migration</span>
 yarn migration:generate AddGeoBlockTables
@@ -424,25 +383,25 @@ yarn migration:run</div>
         ('storefront', 'Storefront integration', '''
 <h3>Polling site-config (cheap)</h3>
 <div class="doc-code">// On storefront boot, once per channel
-const res = await fetch(<span class="s">'https://shop.example.com/geo-block/site-config'</span>, {{
-  headers: {{ <span class="s">'vendure-token'</span>: <span class="k">CHANNEL_TOKEN</span> }},
-}});
+const res = await fetch(<span class="s">'https://shop.example.com/geo-block/site-config'</span>, {
+  headers: { <span class="s">'vendure-token'</span>: <span class="k">CHANNEL_TOKEN</span> },
+});
 const cfg = await res.json();
 <span class="c">// Cache cfg.geoBlock for ~60s, decide client-side based on the visitor's country.</span></div>
 
 <h3>Per-request check (with logging)</h3>
 <div class="doc-code">// In your storefront middleware
-const res = await fetch(<span class="s">'https://shop.example.com/geo-block/check'</span>, {{
-  headers: {{
+const res = await fetch(<span class="s">'https://shop.example.com/geo-block/check'</span>, {
+  headers: {
     <span class="s">'vendure-token'</span>: <span class="k">CHANNEL_TOKEN</span>,
     <span class="s">'cf-ipcountry'</span>: req.headers[<span class="s">'cf-ipcountry'</span>],   <span class="c">// proxy already resolved</span>
-  }},
-}});
+  },
+});
 const verdict = await res.json();
-if (!verdict.allowed) {{
+if (!verdict.allowed) {
   if (verdict.redirectUrl) return res.redirect(302, verdict.redirectUrl);
-  return res.render(<span class="s">'blocked'</span>, {{ message: verdict.message, mode: verdict.mode }});
-}}</div>
+  return res.render(<span class="s">'blocked'</span>, { message: verdict.message, mode: verdict.mode });
+}</div>
 
 <div class="callout">In <strong>soft</strong> mode the storefront should render the full site but include a banner explaining you don't ship to the visitor's country, and hide the checkout button. The plugin returns <code>mode: 'soft'</code> on the verdict to make this decision easy.</div>
 '''),
@@ -500,11 +459,11 @@ VISITOR_ANALYTICS_MANUAL = {
 yarn add @huloglobal/vendure-plugin-visitor-analytics
 
 <span class="c"># 2. Register in vendure-config.ts</span>
-import {{ <span class="k">VisitorAnalyticsPlugin</span> }} from <span class="s">'@huloglobal/vendure-plugin-visitor-analytics'</span>;
+import { <span class="k">VisitorAnalyticsPlugin</span> } from <span class="s">'@huloglobal/vendure-plugin-visitor-analytics'</span>;
 
-export const config: VendureConfig = {{
+export const config: VendureConfig = {
   plugins: [
-    <span class="k">VisitorAnalyticsPlugin</span>.init({{
+    <span class="k">VisitorAnalyticsPlugin</span>.init({
       publicBaseUrl: <span class="s">'https://shop.example.com'</span>,
       licenceKey: process.env.<span class="k">HULO_LICENCE_KEY_VISITOR_ANALYTICS</span>,
       <span class="c">// Privacy options — these are the defaults</span>
@@ -512,9 +471,9 @@ export const config: VendureConfig = {{
       anonymizeIp: <span class="k">true</span>,
       requireConsent: <span class="k">false</span>,
       dropBotEvents: <span class="k">false</span>,
-    }}),
+    }),
   ],
-}};
+};
 
 <span class="c"># 3. Migration</span>
 yarn migration:generate AddVisitorAnalyticsTables
@@ -533,29 +492,29 @@ yarn migration:run</div>
 </ul>
 <h3>Option 2: typed helpers in your storefront</h3>
 <p>Recommended for SSR frameworks (Qwik, Next, Remix, SolidStart) so the tracker code ships in your own bundle. Copy this into <code>utils/visitor-tracking.ts</code>:</p>
-<div class="doc-code"><span class="k">export function</span> recordProductView(productId: number, variantId?: number) {{
-  send([{{ type: <span class="s">'event'</span>, url: location.href, meta: {{
+<div class="doc-code"><span class="k">export function</span> recordProductView(productId: number, variantId?: number) {
+  send([{ type: <span class="s">'event'</span>, url: location.href, meta: {
     eventType: <span class="s">'product_view'</span>, productId, productVariantId: variantId,
-  }} }}]);
-}}
+  } }]);
+}
 
-<span class="k">export function</span> recordCartSnapshot(cart: {{ currency, totalMinor, items, email? }}) {{
-  send([{{ type: <span class="s">'event'</span>, url: location.href, meta: {{
+<span class="k">export function</span> recordCartSnapshot(cart: { currency, totalMinor, items, email? }) {
+  send([{ type: <span class="s">'event'</span>, url: location.href, meta: {
     eventType: <span class="s">'cart_snapshot'</span>, ...cart,
-  }} }}]);
-}}
+  } }]);
+}
 
-<span class="k">export function</span> recordSearch(query: string, resultsCount: number) {{
-  send([{{ type: <span class="s">'event'</span>, url: location.href, meta: {{
+<span class="k">export function</span> recordSearch(query: string, resultsCount: number) {
+  send([{ type: <span class="s">'event'</span>, url: location.href, meta: {
     eventType: <span class="s">'search'</span>, query, resultsCount,
-  }} }}]);
-}}
+  } }]);
+}
 
-<span class="k">export function</span> recordCheckoutCompleted(orderCode: string, totalMinor: number) {{
-  send([{{ type: <span class="s">'event'</span>, url: location.href, meta: {{
+<span class="k">export function</span> recordCheckoutCompleted(orderCode: string, totalMinor: number) {
+  send([{ type: <span class="s">'event'</span>, url: location.href, meta: {
     eventType: <span class="s">'checkout_completed'</span>, orderCode, totalMinor,
-  }} }}], <span class="c">/* useBeacon */</span> <span class="k">true</span>);
-}}</div>
+  } }], <span class="c">/* useBeacon */</span> <span class="k">true</span>);
+}</div>
 <p>See the <a href="https://github.com/huloglobal/vendure-plugin-visitor-analytics">plugin README</a> for the full implementation including the send() batcher and the auto rage/dead-click detectors.</p>
 <h3>Where to call the helpers</h3>
 <table>
@@ -572,27 +531,27 @@ yarn migration:run</div>
 <p>The abandoned-cart admin dashboard mints a URL of the form <code>https://shop.example.com/cart/restore?t=&lt;token&gt;</code>. Add a route on your storefront that consumes it:</p>
 <ol>
 <li>Read <code>?t=</code> from the URL.</li>
-<li>Call <code>GET /ees/recover-cart?t=&lt;token&gt;</code> — returns <code>{{ ok: true, items: [...] }}</code> or <code>{{ error }}</code>.</li>
+<li>Call <code>GET /ees/recover-cart?t=&lt;token&gt;</code> — returns <code>{ ok: true, items: [...] }</code> or <code>{ error }</code>.</li>
 <li>If the visitor already has items in their live cart, don't overwrite — show a friendly "you already have items in your cart" message.</li>
-<li>Otherwise, re-add each <code>{{ variantId, qty }}</code> via your Vendure order API (typically <code>addItemToOrder(productVariantId, quantity)</code>).</li>
+<li>Otherwise, re-add each <code>{ variantId, qty }</code> via your Vendure order API (typically <code>addItemToOrder(productVariantId, quantity)</code>).</li>
 <li>Navigate to <code>/cart</code>.</li>
 </ol>
-<p>The token is signed, time-bounded (default 72h), and non-reusable. If it's expired or already consumed, the endpoint returns <code>{{ error: 'expired-or-invalid' }}</code>.</p>
+<p>The token is signed, time-bounded (default 72h), and non-reusable. If it's expired or already consumed, the endpoint returns <code>{ error: 'expired-or-invalid' }</code>.</p>
 '''),
         ('cart-abandonment', 'Cart abandonment', '''
 <p>Detects sessions that put items in the cart but never checked out. Turns them into <code>AbandonedCart</code> rows you can send a recovery email against.</p>
 <h3>Enable it</h3>
-<div class="doc-code"><span class="k">VisitorAnalyticsPlugin</span>.init({{
+<div class="doc-code"><span class="k">VisitorAnalyticsPlugin</span>.init({
   <span class="c">// ...</span>
-  abandonment: {{
+  abandonment: {
     windowMinutes: 30,           <span class="c">// how long since last cart_snapshot before we mark as abandoned</span>
     slackMinValueMinor: 5000,    <span class="c">// £50 / $50 threshold for a Slack ping</span>
     slackWebhookUrl: process.env.<span class="k">HULO_ABANDONMENT_SLACK_URL</span>,
     recoveryLinkSecret: process.env.<span class="k">HULO_ABANDONMENT_SECRET</span>,
     recoveryLinkTtlHours: 72,
     storefrontBaseUrl: <span class="s">'https://shop.example.com'</span>,
-  }},
-}})</div>
+  },
+})</div>
 <h3>How the scanner works</h3>
 <p>A worker-only interval (5 minutes) walks recent <code>cart_snapshot</code> events, grouped by session. For each session:</p>
 <ul>
@@ -605,7 +564,7 @@ yarn migration:run</div>
 <h3>Recovery link lifecycle</h3>
 <ol>
 <li>Admin clicks "Recovery link" on an abandoned row.</li>
-<li>Backend mints a random opaque token and returns <code>{{ url: '&lt;storefront&gt;/cart/restore?t=...' }}</code>.</li>
+<li>Backend mints a random opaque token and returns <code>{ url: '&lt;storefront&gt;/cart/restore?t=...' }</code>.</li>
 <li>Admin drops the URL into a recovery email.</li>
 <li>Recipient clicks — the storefront's <code>/cart/restore</code> route exchanges the token via <code>/ees/recover-cart?t=...</code> and re-adds the items.</li>
 <li>Once the visitor completes the checkout, the scanner promotes the row to <code>converted</code>.</li>
@@ -628,9 +587,9 @@ yarn migration:run</div>
 hulo.productView(product.id, selectedVariant.id);
 
 <span class="c">// then fetch the recs rail</span>
-<span class="k">const</span> res = <span class="k">await</span> fetch(<span class="s">`/ees/recommendations/also-viewed?productId=${{product.id}}&amp;limit=8`</span>);
-<span class="k">const</span> {{ items }} = <span class="k">await</span> res.json();
-<span class="c">// items: [{{ productId, score }}]</span>
+<span class="k">const</span> res = <span class="k">await</span> fetch(<span class="s">`/ees/recommendations/also-viewed?productId=${product.id}&amp;limit=8`</span>);
+<span class="k">const</span> { items } = <span class="k">await</span> res.json();
+<span class="c">// items: [{ productId, score }]</span>
 <span class="c">// Hydrate names / images from your usual Vendure product fetch.</span></div>
 '''),
         ('search-analytics', 'Site search analytics', '''
@@ -690,13 +649,13 @@ hulo.search(query, results.totalItems);</div>
 <h3>Creating a goal</h3>
 <div class="doc-code">curl -X POST https://shop.example.com/ees/goals \\
   -H "Content-Type: application/json" \\
-  -d '{{
+  -d '{
     "channelId": 1,
     "name": "Checkout completed",
     "urlPattern": "/checkout/thank-you/*",
     "valueMinor": 5000,
     "enabled": true
-  }}'</div>
+  }'</div>
 <p>Once created, every matching pageview is tagged with the <code>goalId</code> on its <code>visitor_event</code> row. The admin stats endpoint at <code>/ees/goals/stats?days=30</code> aggregates completions per goal.</p>
 '''),
         ('privacy', 'Privacy controls', '''
@@ -965,7 +924,7 @@ def wrap_tables(html_str):
     """Wrap every <table> in a scroll container so it doesn't overflow on mobile."""
     return re.sub(
         r'(<table>.*?</table>)',
-        r'<div class="table-wrap" role="region" aria-label="Data table" tabindex="0">\1</div>',
+        lambda m: m.group(1),
         html_str,
         flags=re.DOTALL,
     )
@@ -1281,30 +1240,46 @@ mutation { addPaymentToOrder(input: { method: "stripe", metadata: { paymentInten
 }
 
 
+def label_regions(html_str, section_title):
+    """Scrollable tables and code blocks: keyboard-focusable, each region named
+    after its manual section (numbered when a section has several)."""
+    n = {'t': 0}
+    def table(m):
+        n['t'] += 1
+        label = html.escape(f"{section_title}: table {n['t']}")
+        return f'<div class="table-wrap" role="region" aria-label="{label}" tabindex="0">{m.group(1)}</div>'
+    out = re.sub(r'(<table\b[^>]*>.*?</table>)', table, html_str, flags=re.DOTALL)
+    out = out.replace('<pre>', '<pre class="doc-code" tabindex="0">')
+    return out.replace('<div class="doc-code">', '<div class="doc-code" tabindex="0">')
+
+
 def render_manual(m):
     canonical = f'https://huloglobal.com/vendure-plugins/{m["slug"]}/docs/'
-    head = DOC_HEAD.format(
-        title=f"{m['title_short']} — User Manual | Hulo Global",
-        description=f"Complete user manual for the @huloglobal/vendure-plugin-{m['slug']} Vendure plugin: install, admin UI, endpoints, troubleshooting.",
-        canonical=canonical,
-        slug=m['slug'],
-        title_short=m['title_short'],
-    )
+    title_short = m['title_short']
+    head = vp.header(f"{title_short} for Vendure — User Manual | Hulo Global", canonical,
+                     f"Complete user manual for the @huloglobal/vendure-plugin-{m['slug']} Vendure plugin: install, admin UI, endpoints, troubleshooting.")
     toc_items = '\n'.join(
         f'<li><a href="#{slug}">{html.escape(title)}</a></li>'
         for slug, title, _ in m['sections']
     )
     body_items = '\n'.join(
-        f'<section id="{slug}"><h2>{html.escape(title)}</h2>{wrap_tables(content)}</section>'
+        f'<section id="{slug}"><h2>{html.escape(title)}</h2>{label_regions(content, title)}</section>'
         for slug, title, content in m['sections']
     )
-    return head + f'''
-<nav class="doc-toc">
-<p class="text-xs uppercase tracking-wider text-ink-500 font-semibold mb-3">On this page</p>
+    band = vp.platform_band('vd', m['slug'], title_short, vp.edition_title('wp', m['slug'], title_short))
+    return head + DOC_STYLE + band + f'''<div class="container-page page-y pf-vd">
+{vp.crumbs([('Vendure plugins', '/vendure-plugins/'), (title_short, f"/vendure-plugins/{m['slug']}/"), ('Manual', None)])}
+<span class="pf-badge">For Vendure</span>
+<h1 class="mt-4 text-4xl md:text-5xl font-bold tracking-tight text-ink-900" style="margin-bottom:40px">{html.escape(title_short)} for Vendure: user manual</h1>
+<div class="doc">
+<nav class="doc-toc" aria-label="On this page">
+<p class="text-xs uppercase tracking-wider text-ink-600 font-semibold mb-3">On this page</p>
 <ul>{toc_items}</ul>
 </nav>
 <article class="doc-body">{body_items}</article>
-''' + DOC_FOOT
+</div>
+</div>
+''' + vp.FOOTER
 
 
 def main():

@@ -13,6 +13,14 @@ detail pages, user manuals and install scripts shown at
 | `./deploy.sh --no-commit` | Build + deploy only — no git activity. |
 | `python3 build.py` | Build the marketing pages locally (no deploy). |
 | `python3 build_manuals.py` | Build the manual pages locally (no deploy). |
+| `node build_css.mjs` | After the Python builders: compile `dist/vendure-plugins/assets/pages.css` from huloglobal.com's Tailwind theme (`/root/huloglobal-site/src/styles/global.css`) against the generated HTML, so every utility class the pages use exists. |
+
+Styling: every generated page (Vendure, WordPress, manuals, changelogs,
+legal) shares `HEADER`/`FOOTER` from `build.py`. Platform identity
+(`.pf-*`: WordPress violet, Vendure teal, the band under the header with
+the switch to the other edition, the install box) and the spacing
+rhythm (`.page-y`, `.section-y`, 16px phone gutter) live in the main
+site's `global.css`, so the homepage and these pages stay in step.
 
 The deploy script:
 

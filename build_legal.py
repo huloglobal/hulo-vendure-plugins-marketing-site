@@ -18,7 +18,7 @@ import html
 
 HERE = Path(__file__).parent
 OUT = HERE / 'dist' / 'legal'
-ASTRO_CSS = '/_astro/index@_@astro.CpJRZGi5.css'
+import build as vp
 
 # Bump this string and the date in CHANGELOG below each time the
 # substance of the documents changes. The version is recorded against
@@ -39,61 +39,31 @@ CHANGELOG = [
 ]
 
 
-HEAD = '''<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>{title} — Hulo Global</title>
-<meta name="description" content="{description}">
-<link rel="canonical" href="https://huloglobal.com/legal/{slug}/">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
-<meta name="robots" content="index, follow">
-<link rel="stylesheet" href="''' + ASTRO_CSS + '''">
+LEGAL_STYLE = '''
 <style>
-.legal-shell {{ max-width: 760px; margin: 0 auto; padding: 0 24px; }}
-.legal-shell h1 {{ font-size: 36px; line-height: 1.15; letter-spacing: -0.025em; margin: 48px 0 8px; color: var(--color-ink-900, #0f172a); }}
-@media (max-width: 600px) {{ .legal-shell h1 {{ font-size: 28px; }} }}
-.legal-shell .lede {{ font-size: 16px; color: var(--color-ink-600, #475569); margin: 0 0 28px; }}
-.legal-shell .meta {{ display: flex; flex-wrap: wrap; gap: 12px 18px; font-size: 13px; color: var(--color-ink-500, #64748b); border-top: 1px solid var(--color-ink-100, #e2e8f0); border-bottom: 1px solid var(--color-ink-100, #e2e8f0); padding: 12px 0; margin-bottom: 32px; }}
-.legal-shell .meta strong {{ color: var(--color-ink-800, #1e293b); }}
-.legal-shell h2 {{ font-size: 21px; margin: 40px 0 12px; color: var(--color-ink-900); scroll-margin-top: 80px; }}
-.legal-shell h3 {{ font-size: 16px; margin: 22px 0 8px; color: var(--color-ink-800); }}
-.legal-shell p, .legal-shell li {{ font-size: 16px; line-height: 1.7; color: var(--color-ink-700, #334155); }}
-.legal-shell ul, .legal-shell ol {{ padding-left: 22px; margin: 10px 0 16px; }}
-.legal-shell li {{ margin: 6px 0; }}
-.legal-shell code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; background: var(--color-ink-50, #f8fafc); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-ink-100, #e2e8f0); }}
-.legal-shell a {{ color: var(--color-accent-600, #d97706); text-decoration: underline; text-underline-offset: 3px; }}
-.legal-shell a:hover {{ text-decoration-thickness: 2px; }}
-.legal-shell .toc {{ background: var(--color-ink-50, #f8fafc); border: 1px solid var(--color-ink-100); border-radius: 12px; padding: 18px 22px; margin: 0 0 32px; }}
-.legal-shell .toc strong {{ display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--color-ink-500); margin-bottom: 8px; }}
-.legal-shell .toc ol {{ margin: 0; padding-left: 22px; }}
-.legal-shell .toc li {{ font-size: 14px; line-height: 1.7; }}
-.legal-shell .toc a {{ color: var(--color-ink-700); }}
-.legal-shell blockquote {{ margin: 16px 0; padding: 12px 18px; background: var(--color-accent-50, #fffbeb); border-left: 4px solid var(--color-accent-500, #f59e0b); border-radius: 4px; font-size: 14px; color: var(--color-ink-800); }}
-.legal-shell .changelog {{ margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--color-ink-100); font-size: 13px; color: var(--color-ink-500); }}
-.legal-shell .changelog li {{ font-size: 13px; }}
+.legal-shell { max-width: 760px; margin: 0 auto; }
+.legal-shell h1 { font-size: 36px; line-height: 1.15; letter-spacing: -0.025em; margin: 0 0 8px; color: var(--color-ink-900, #0f172a); }
+@media (max-width: 600px) { .legal-shell h1 { font-size: 28px; } }
+.legal-shell .lede { font-size: 16px; color: var(--color-ink-600, #475569); margin: 0 0 28px; }
+.legal-shell .meta { display: flex; flex-wrap: wrap; gap: 12px 18px; font-size: 13px; color: var(--color-ink-500, #64748b); border-top: 1px solid var(--color-ink-100, #e2e8f0); border-bottom: 1px solid var(--color-ink-100, #e2e8f0); padding: 12px 0; margin-bottom: 32px; }
+.legal-shell .meta strong { color: var(--color-ink-800, #1e293b); }
+.legal-shell h2 { font-size: 21px; margin: 40px 0 12px; color: var(--color-ink-900); scroll-margin-top: 80px; }
+.legal-shell h3 { font-size: 16px; margin: 22px 0 8px; color: var(--color-ink-800); }
+.legal-shell p, .legal-shell li { font-size: 16px; line-height: 1.7; color: var(--color-ink-700, #334155); }
+.legal-shell ul, .legal-shell ol { padding-left: 22px; margin: 10px 0 16px; }
+.legal-shell li { margin: 6px 0; }
+.legal-shell code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; background: var(--color-ink-50, #f8fafc); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-ink-100, #e2e8f0); }
+.legal-shell a { color: var(--color-accent-700, #1d4ed8); text-decoration: underline; text-underline-offset: 3px; }
+.legal-shell a:hover { text-decoration-thickness: 2px; }
+.legal-shell .toc { background: var(--color-ink-50, #f8fafc); border: 1px solid var(--color-ink-100); border-radius: 12px; padding: 18px 22px; margin: 0 0 32px; }
+.legal-shell .toc strong { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--color-ink-500); margin-bottom: 8px; }
+.legal-shell .toc ol { margin: 0; padding-left: 22px; }
+.legal-shell .toc li { font-size: 14px; line-height: 1.7; }
+.legal-shell .toc a { color: var(--color-ink-700); }
+.legal-shell blockquote { margin: 16px 0; padding: 12px 18px; background: var(--color-accent-50, #fffbeb); border-left: 4px solid var(--color-accent-500, #f59e0b); border-radius: 4px; font-size: 14px; color: var(--color-ink-800); }
+.legal-shell .changelog { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--color-ink-100); font-size: 13px; color: var(--color-ink-500); }
+.legal-shell .changelog li { font-size: 13px; }
 </style>
-</head>
-<body>
-<a href="#main" class="skip-link">Skip to content</a>
-<header class="sticky top-0 z-40 border-b border-ink-100 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70">
-<div class="container-page flex items-center justify-between py-4">
-<a href="/" class="flex items-center gap-2.5 group">
-<span class="grid size-9 place-items-center rounded-lg bg-ink-900 text-white font-bold tracking-tight text-sm">HG</span>
-<span class="font-bold text-ink-900 tracking-tight text-lg">Hulo Global</span>
-</a>
-<nav class="hidden md:block">
-<ul class="flex items-center gap-8 text-sm font-medium text-ink-700">
-<li><a href="/" class="hover:text-ink-900">Home</a></li>
-<li><a href="/vendure-plugins/" class="hover:text-ink-900">Vendure plugins</a></li>
-<li><a href="/legal/" class="hover:text-ink-900">Legal</a></li>
-</ul>
-</nav>
-</div>
-</header>
-<main id="main" class="py-10 md:py-14">
-<div class="legal-shell">
 '''
 
 FOOT = '''
@@ -104,26 +74,15 @@ FOOT = '''
 </ul>
 </div>
 </div>
-</main>
-<footer class="border-t border-ink-100 bg-ink-50 mt-20">
-<div class="container-page py-10 text-sm text-ink-600">
-<p>''' + COMPANY['name'] + ''' · UK Companies House ''' + COMPANY['reg'] + ''' · ''' + COMPANY['address'] + '''</p>
-<p class="mt-2"><a href="mailto:''' + COMPANY['email'] + '''" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">''' + COMPANY['email'] + '''</a></p>
-<p class="mt-4 text-xs text-ink-500">
-<a href="/legal/terms/" class="underline underline-offset-4 decoration-ink-300">Terms</a> ·
-<a href="/legal/privacy/" class="underline underline-offset-4 decoration-ink-300">Privacy</a> ·
-<a href="/legal/cookies/" class="underline underline-offset-4 decoration-ink-300">Cookies</a> ·
-<a href="/legal/acceptable-use/" class="underline underline-offset-4 decoration-ink-300">Acceptable use</a>
-</p>
 </div>
-</footer>
-</body>
-</html>
 '''
 
 
 def page(slug, title, description, body_html):
-    head = HEAD.format(title=html.escape(title), description=html.escape(description), slug=slug)
+    canonical = f'https://huloglobal.com/legal/{slug}/' if slug else 'https://huloglobal.com/legal/'
+    head = (vp.header(f'{title} — Hulo Global', canonical, description) + LEGAL_STYLE
+            + '<div class="container-page page-y"><div class="legal-shell">'
+            + vp.crumbs([('Home', '/')] + ([('Legal', '/legal/'), (title, None)] if slug else [('Legal', None)])))
     meta = f'''
 <div class="meta">
 <span><strong>Version:</strong> {TERMS_VERSION}</span>
@@ -131,7 +90,14 @@ def page(slug, title, description, body_html):
 <span><strong>Entity:</strong> {COMPANY['name']} (UK Companies House {COMPANY['reg']})</span>
 </div>
 '''
-    return head + f'<h1>{html.escape(title)}</h1>' + meta + body_html + FOOT
+    import re
+    n = [0]
+    def wrap(m):
+        n[0] += 1
+        return (f'<div class="table-wrap" role="region" tabindex="0" aria-label="{html.escape(title)}: table {n[0]}">'
+                + m.group(0) + '</div>')
+    body_html = re.sub(r'<table\b.*?</table>', wrap, body_html, flags=re.S)
+    return head + f'<h1>{html.escape(title)}</h1>' + meta + body_html + FOOT + vp.FOOTER
 
 
 # ──────────────────────────────────────────────────────────────────────

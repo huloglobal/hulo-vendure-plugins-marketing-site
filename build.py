@@ -95,7 +95,12 @@ def parse_changelog(pkg: str):
             section[1][-1] += ' ' + line.strip()
     return releases
 
-ASTRO_CSS = '/_astro/index@_@astro.CpJRZGi5.css'
+# Stylesheet for every generated page: compiled by build_css.mjs from the main
+# site's Tailwind theme (global.css) against the generated HTML, so every
+# utility class used here exists. ?v= busts caches on each build.
+import time as _time
+CSS_VERSION = _time.strftime('%Y%m%d%H%M')
+ASTRO_CSS = '/vendure-plugins/assets/pages.css?v=' + CSS_VERSION
 BUY_BASE = 'https://elite.charity/licence/buy'
 CHECKOUT_URL = 'https://elite.charity/licence/checkout'
 
@@ -831,18 +836,25 @@ HEADER = '''<!DOCTYPE html>
 @media (prefers-reduced-motion: reduce) {{
   *, *::before, *::after {{ animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }}
 }}
-.vp-proof-item {{ display:inline-flex; align-items:center; gap:.4rem; }} .vp-proof-item::before {{ content:""; width:6px; height:6px; border-radius:999px; background:#22c55e; display:inline-block; }} a.vp-proof-item {{ text-decoration:underline; text-underline-offset:2px; }}
+.vp-proof-item {{ display:inline-flex; align-items:center; gap:.4rem; min-height:24px; }} .vp-proof-item::before {{ content:""; width:6px; height:6px; border-radius:999px; background:#22c55e; display:inline-block; }} a.vp-proof-item {{ text-decoration:underline; text-underline-offset:2px; }}
 .vp-tier-list {{ list-style:none; padding:0; margin:0; }} .vp-tier-list li {{ position:relative; padding-left:1.4rem; margin:.45rem 0; font-size:.95rem; color:#334155; line-height:1.5; }} .vp-tier-list li::before {{ content:"✓"; position:absolute; left:0; color:#16a34a; font-weight:700; }}
-.vp-hero {{ position: relative; background: linear-gradient(to bottom, var(--color-ink-50, #f8fafc) 0%, #fff 100%); }}
+.vp-hero {{ position: relative; background: linear-gradient(to bottom, var(--color-ink-50, #f8fafc) 0%, #fff 100%); border-bottom: 1px solid var(--color-ink-100, #e2e8f0); }}
+/* Hero: 48/80px top (page-y), shorter bottom so the first section follows on. */
+.vp-hero > .page-y {{ padding-bottom: 2.5rem; }}
+@media (min-width: 768px) {{ .vp-hero > .page-y {{ padding-bottom: 3.5rem; }} }}
 .vp-hero::before {{ content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .35; background-image: radial-gradient(ellipse 70% 50% at 50% 0%, var(--color-accent-100, #fde68a), transparent 60%); }}
 /* Corporate brand mark — sits at the top of every hero. Small,
    text-anchored to the logotype so it reads as a clickable badge. */
 .vp-plugin-logo {{ display: block; width: 56px; height: 56px; border-radius: 14px; margin-bottom: 22px; box-shadow: 0 1px 3px rgba(15,23,42,.10), 0 2px 8px rgba(15,23,42,.06); }}
 .vp-pill {{ display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--color-ink-200, #e2e8f0); background: #fff; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--color-ink-600, #475569); }}
 .vp-pill::before {{ content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--color-accent-500, #f59e0b); }}
-.vp-section {{ padding: 88px 0; }}
-@media (max-width: 768px) {{ .vp-section {{ padding: 56px 0; }} }}
+.vp-section {{ padding: 96px 0; }}
+@media (max-width: 767px) {{ .vp-section {{ padding: 64px 0; }} }}
+/* Same rhythm as huloglobal.com: .page-y / .section-y come from global.css. */
+.vp-section > .container-page > h2:first-child, .vp-section > .container-page > p:first-child {{ margin-top: 0; }}
 .vp-grid-2 {{ display: grid; grid-template-columns: 1fr; gap: 48px; }}
+.vp-grid-2 > * {{ min-width: 0; }}
+.vp-feat p, .vp-feat h3 {{ overflow-wrap: anywhere; }}
 @media (min-width: 1024px) {{ .vp-grid-2 {{ grid-template-columns: minmax(0, 1fr) 380px; gap: 64px; align-items: start; }} }}
 .vp-pricing-aside {{ position: sticky; top: 104px; }}
 @media (max-width: 1023px) {{ .vp-pricing-aside {{ position: static; top: auto; margin-top: 8px; }} }}
@@ -886,8 +898,9 @@ HEADER = '''<!DOCTYPE html>
 .vp-step h3::before {{ content: counter(step); display: inline-block; min-width: 32px; height: 32px; padding: 0 8px; margin-right: 14px; background: var(--color-ink-900); color: #fff; border-radius: 999px; font-size: 15px; font-weight: 700; text-align: center; line-height: 32px; vertical-align: middle; }}
 .vp-step h3 {{ font-size: 22px !important; line-height: 1.4; }}
 .vp-step > p {{ margin: 12px 0 14px 46px; }}
-.vp-code {{ background: #0f172a; color: #f1f5f9; padding: 22px 24px; border-radius: 12px; font-size: 13.5px; line-height: 1.75; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; margin-left: 46px; }}
-.vp-code .vp-comment {{ color: #94a3b8; }}
+@media (max-width: 639px) {{ .vp-step > p, .vp-code {{ margin-left: 0 !important; }} .vp-code {{ padding: 18px 16px; }} }}
+.vp-code {{ white-space: pre; background: #0f172a; color: #f1f5f9; padding: 22px 24px; border-radius: 12px; font-size: 13.5px; line-height: 1.75; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; margin-left: 46px; }}
+.vp-code .vp-comment {{ color: #a3b1c6; }}
 .vp-code .vp-key {{ color: #fbbf24; }}
 .vp-code .vp-str {{ color: #86efac; }}
 .vp-faq summary {{ font-weight: 600; padding: 22px 0; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; font-size: 16px; }}
@@ -905,7 +918,7 @@ HEADER = '''<!DOCTYPE html>
 .vp-method.DELETE {{ background: #fee2e2; color: #7f1d1d; }}
 .vp-endpoint code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--color-ink-900); font-size: 13px; }}
 .vp-endpoint .vp-desc {{ color: var(--color-ink-600); font-size: 13px; }}
-.vp-cards-grid {{ display: grid; grid-template-columns: 1fr; gap: 28px; }}
+.vp-cards-grid {{ display: grid; grid-template-columns: 1fr; gap: 24px; }}
 @media (min-width: 768px) {{ .vp-cards-grid {{ grid-template-columns: repeat(3, 1fr); }} }}
 .vp-card {{ display: flex; flex-direction: column; border: 1px solid var(--color-ink-100, #e2e8f0); border-radius: 18px; padding: 32px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.05); transition: transform .15s, box-shadow .15s; }}
 .vp-card:hover {{ transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15,23,42,.08); }}
@@ -913,7 +926,9 @@ HEADER = '''<!DOCTYPE html>
 .vp-card .vp-card-tagline {{ font-size: 15px; color: var(--color-ink-600); line-height: 1.65; margin: 14px 0 0; }}
 .vp-card ul {{ list-style: none; padding: 0; margin: 24px 0 0; }}
 .vp-card li {{ display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; font-size: 14px; color: var(--color-ink-700); line-height: 1.5; }}
-.vp-card .vp-card-actions {{ margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--color-ink-100); display: flex; align-items: center; gap: 12px; }}
+.vp-card .vp-card-actions {{ margin-top: auto; padding-top: 24px; border-top: 1px solid var(--color-ink-100); display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }}
+.vp-card ul {{ margin-bottom: 28px !important; }}
+@media (max-width: 639px) {{ .vp-card {{ padding: 24px; }} .vp-price-card {{ padding: 20px; }} }}
 
 /* Currency picker — proper tap target + visible focus */
 .sr-only {{ position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }}
@@ -939,19 +954,26 @@ HEADER = '''<!DOCTYPE html>
     outline-offset: 2px;
 }}
 .ccy-select:hover {{ border-color: var(--color-ink-300, #cbd5e1); }}
-.ccy-select-mobile {{ font-size: 13px; padding: 8px 28px 8px 12px; min-height: 40px; }}
+.ccy-select-mobile {{ font-size: 13px; padding: 8px 28px 8px 12px; min-height: 44px; }}
 
 .mobile-controls {{ display: flex; align-items: center; gap: 12px; }}
-.mobile-nav-link {{
-    padding: 10px 14px; min-height: 44px;
-    display: inline-flex; align-items: center;
-    border-radius: 8px;
-    background: var(--color-ink-50, #f8fafc);
-    color: var(--color-ink-800, #1e293b);
-    font-size: 14px; font-weight: 600; text-decoration: none;
-    border: 1px solid var(--color-ink-200, #e2e8f0);
-}}
-.mobile-nav-link:focus-visible {{ outline: 2px solid var(--color-accent-500, #f59e0b); outline-offset: 2px; }}
+@media (min-width: 768px) {{ .mobile-controls {{ display: none; }} }}
+.mobile-nav {{ display: flex; flex-wrap: wrap; gap: 0 18px; padding-bottom: 6px; font-size: 14px; font-weight: 600; color: var(--color-ink-700); }}
+.mobile-nav a {{ display: inline-flex; align-items: center; min-height: 40px; text-decoration: none; }}
+.mobile-nav a:hover {{ color: var(--color-ink-900); text-decoration: underline; }}
+@media (min-width: 768px) {{ .mobile-nav {{ display: none; }} }}
+/* Footer: comfortable 24px+ tap targets */
+.site-foot li a {{ display: inline-block; padding-block: 4px; }}
+/* Breadcrumbs */
+.vp-crumbs {{ font-size: 14px; color: var(--color-ink-600); margin-bottom: 20px; }}
+.vp-crumbs a {{ display: inline-block; padding-block: 2px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--color-ink-300); }}
+.vp-crumbs a:hover {{ color: var(--color-ink-900); text-decoration-color: currentColor; }}
+/* WordPress pages: readme FAQ uses the same FAQ look */
+.vp-faq details > div {{ padding: 0 0 18px; }}
+.vp-faq details > div > p:first-child {{ margin-top: 0; }}
+/* Long inline code, URLs and tokens never push the page sideways */
+main {{ overflow-wrap: break-word; }}
+main code {{ overflow-wrap: anywhere; }}
 
 /* Compatibility matrix */
 .vp-compat-wrap {{ overflow-x: auto; }}
@@ -1016,13 +1038,14 @@ HEADER = '''<!DOCTYPE html>
 <a href="#main" class="skip-link">Skip to content</a>
 <header class="sticky top-0 z-40 border-b border-ink-100 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70">
 <div class="container-page flex items-center justify-between py-4">
-<a href="/" class="flex items-center gap-2.5 group" aria-label="Hulo Global — home">
+<a href="/" class="flex items-center gap-2.5 group">
 <span aria-hidden="true" class="grid size-9 place-items-center rounded-lg bg-ink-900 text-white font-bold tracking-tight text-sm group-hover:bg-ink-800 transition-colors">HG</span>
-<span class="font-bold text-ink-900 tracking-tight text-lg">Hulo Global</span>
+<span class="font-bold text-ink-900 tracking-tight text-lg">Hulo Global<span class="sr-only"> home</span></span>
 </a>
-<nav aria-label="Primary" class="hidden md:flex md:items-center md:gap-6">
-<ul class="flex items-center gap-6 text-sm font-medium text-ink-700">
+<nav aria-label="Primary" class="hidden md:flex md:items-center md:gap-4">
+<ul class="flex items-center gap-1 lg:gap-3 text-sm font-medium text-ink-700">
 <li><a href="/" class="hover:text-ink-900 transition-colors py-3 px-2 inline-block">Home</a></li>
+<li><a href="/wordpress-plugins/" class="hover:text-ink-900 transition-colors py-3 px-2 inline-block">WordPress plugins</a></li>
 <li><a href="/vendure-plugins/" class="hover:text-ink-900 transition-colors py-3 px-2 inline-block">Vendure plugins</a></li>
 <li><a href="/vendure-plugins/roadmap/" class="hover:text-ink-900 transition-colors py-3 px-2 inline-block">Roadmap</a></li>
 <li><a href="/#contact" class="hover:text-ink-900 transition-colors py-3 px-2 inline-block">Contact</a></li>
@@ -1030,12 +1053,16 @@ HEADER = '''<!DOCTYPE html>
 ''' + ccy_picker_html('ccy-picker') + '''
 </nav>
 <div class="mobile-controls md:hidden">
-<a href="/vendure-plugins/" class="mobile-nav-link" aria-label="Vendure plugins">Plugins</a>
-<a href="/vendure-plugins/roadmap/" class="mobile-nav-link" aria-label="Roadmap">Roadmap</a>
 ''' + ccy_picker_html('ccy-picker-mobile', mobile=True) + '''
 </div>
-<div id="ccy-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 </div>
+<nav aria-label="Mobile navigation" class="container-page mobile-nav md:hidden">
+<a href="/wordpress-plugins/">WordPress plugins</a>
+<a href="/vendure-plugins/">Vendure plugins</a>
+<a href="/vendure-plugins/roadmap/">Roadmap</a>
+<a href="/#contact">Contact</a>
+</nav>
+<div id="ccy-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 </header>
 <main id="main">
 '''
@@ -1144,18 +1171,27 @@ VERSION_REFRESH_JS = '''
 
 FOOTER = CURRENCY_JS + VERSION_REFRESH_JS + '''
 </main>
-<footer class="border-t border-ink-100 bg-ink-50 mt-20">
-<div class="container-page py-10 grid gap-8 sm:grid-cols-3">
+<footer class="site-foot border-t border-ink-100 bg-ink-50">
+<div class="container-page py-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
 <div>
-<p class="text-sm text-ink-700">Hulo Global Limited</p>
+<p class="text-sm font-semibold text-ink-800">Hulo Global Limited</p>
 <p class="text-xs text-ink-600 mt-1">UK Companies House 17134928</p>
 <p class="text-xs text-ink-600 mt-1">Unit A, 82 James Carter Road,<br>Mildenhall, IP28 7DE, UK</p>
 </div>
 <div>
-<p class="text-xs uppercase tracking-wider text-ink-500 font-semibold mb-3">Vendure plugins</p>
-<ul class="space-y-1.5 text-sm text-ink-700">
-<li><a href="/vendure-plugins/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">All plugins</a></li>
-<li><a href="/wordpress-plugins/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">WordPress plugins</a></li>
+<h2 class="text-xs uppercase tracking-wider text-ink-600 font-semibold mb-3">WordPress plugins</h2>
+<ul class="space-y-1 text-sm text-ink-700">
+<li><a href="/wordpress-plugins/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">All WordPress plugins</a></li>
+<li><a href="/wordpress-plugins/payments/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Payments</a></li>
+<li><a href="/wordpress-plugins/checkout-guard/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Checkout Guard</a></li>
+<li><a href="/wordpress-plugins/fraud-prevention/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Fraud Prevention</a></li>
+<li><a href="/wordpress-plugins/geo-block/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Geo-block</a></li>
+</ul>
+</div>
+<div>
+<h2 class="text-xs uppercase tracking-wider text-ink-600 font-semibold mb-3">Vendure plugins</h2>
+<ul class="space-y-1 text-sm text-ink-700">
+<li><a href="/vendure-plugins/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">All Vendure plugins</a></li>
 <li><a href="/vendure-plugins/email-tracking/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Email Tracking</a></li>
 <li><a href="/vendure-plugins/geo-block/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Geo Block</a></li>
 <li><a href="/vendure-plugins/visitor-analytics/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Visitor Analytics</a></li>
@@ -1164,11 +1200,12 @@ FOOTER = CURRENCY_JS + VERSION_REFRESH_JS + '''
 </ul>
 </div>
 <div>
-<p class="text-xs uppercase tracking-wider text-ink-500 font-semibold mb-3">Customers</p>
-<ul class="space-y-1.5 text-sm text-ink-700">
+<h2 class="text-xs uppercase tracking-wider text-ink-600 font-semibold mb-3">Customers</h2>
+<ul class="space-y-1 text-sm text-ink-700">
 <li><a href="https://elite.charity/licence/forgot" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Lost your key?</a></li>
 <li><a href="https://elite.charity/licence/privacy" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Your data &amp; privacy</a></li>
-<li><a href="mailto:hello@huloglobal.com" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">hello@huloglobal.com</a></li>
+<li><a href="/legal/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Plugin terms &amp; policies</a></li>
+<li><a href="mailto:hello@huloglobal.com" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800"><!--email_off-->hello@huloglobal.com<!--/email_off--></a></li>
 </ul>
 </div>
 </div>
@@ -1180,6 +1217,59 @@ FOOTER = CURRENCY_JS + VERSION_REFRESH_JS + '''
 
 def header(title, canonical, description):
     return HEADER.format(title=html.escape(title), canonical=canonical, description=html.escape(description))
+
+
+# ── Platform identity ────────────────────────────────────────────────
+# Every plugin exists as a WordPress edition (/wordpress-plugins/<slug>/)
+# and a Vendure edition (/vendure-plugins/<slug>/). Pages carry a band
+# naming the platform, with a switch to the other edition of the same
+# plugin. Styles (.pf-*) live in the main site's global.css.
+PLATFORMS = {
+    'wp': {'name': 'WordPress', 'base': '/wordpress-plugins'},
+    'vd': {'name': 'Vendure', 'base': '/vendure-plugins'},
+}
+# Titles of the WordPress editions (their readme names) where they differ.
+WP_TITLES = {'geo-block': 'Geo-block'}
+
+
+def edition_title(platform: str, slug: str, default: str) -> str:
+    return WP_TITLES.get(slug, default) if platform == 'wp' else default
+
+
+def platform_band(platform: str, slug: str | None = None, title: str | None = None,
+                  other_title: str | None = None, other_exists: bool = True) -> str:
+    """Band under the site header: which edition this is + the switch."""
+    me, other = ('wp', 'vd') if platform == 'wp' else ('vd', 'wp')
+    name, oname = PLATFORMS[me]['name'], PLATFORMS[other]['name']
+    what = ('for any WordPress site, WooCommerce optional' if me == 'wp'
+            else 'for Vendure 3 shops, installed with npm')
+    label = f'<strong>{name} edition</strong>' if slug else f'<strong>{name} plugins</strong>'
+    if slug and other_exists:
+        href = f"{PLATFORMS[other]['base']}/{slug}/"
+        link = f'Also available for {oname}: {html.escape(other_title or title or "")} for {oname} <span aria-hidden="true">→</span>'
+    else:
+        href = f"{PLATFORMS[other]['base']}/"
+        link = f'Running {oname}? See the {oname} plugins <span aria-hidden="true">→</span>'
+    return f'''<div class="pf-band pf-{me}">
+<div class="container-page pf-band-inner">
+<span class="pf-badge">For {name}</span>
+<span>{label}: {what}.</span>
+<a class="pf-switch" href="{href}">{link}</a>
+</div>
+</div>
+'''
+
+
+def crumbs(items) -> str:
+    """Breadcrumb trail: [(label, href|None), ...]."""
+    parts = []
+    for i, (label, href) in enumerate(items):
+        if href:
+            parts.append(f'<a href="{href}">{html.escape(label)}</a>')
+        else:
+            parts.append(f'<span class="text-ink-900 font-medium" aria-current="page">{html.escape(label)}</span>')
+    return ('<nav aria-label="Breadcrumb" class="vp-crumbs">'
+            + '<span class="mx-2 text-ink-500" aria-hidden="true">/</span>'.join(parts) + '</nav>')
 
 
 TICK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
@@ -1263,8 +1353,8 @@ def index_page():
             for f in short_features[p['slug']]
         )
         cards.append(f'''
-<article class="vp-card">
-  <h3>{html.escape(p['title'])}</h3>
+<article class="vp-card pf-card">
+  <h3>{html.escape(p['title'])}<span class="sr-only"> for Vendure</span></h3>
   <p class="vp-card-tagline">{html.escape(p['tagline'])}</p>
   <ul>{feats_html}</ul>
   <div class="vp-card-actions">
@@ -1290,9 +1380,9 @@ def index_page():
         if c == 'yes': return '<span class="text-accent-600 font-bold">✓</span>' if not plain else '✓'
         if c == 'yes-note':
             return ('<span class="text-accent-600 font-bold">✓</span>'
-                    '<sup><a href="#threat-intel-note" class="text-ink-400 no-underline" style="text-decoration:none">†</a></sup>'
+                    '<sup><a href="#threat-intel-note" class="text-ink-600" style="text-decoration:none;display:inline-block;min-width:24px;min-height:24px;text-align:center">†<span class="sr-only"> see the note on optional third-party calls</span></a></sup>'
                     if not plain else '✓ †')
-        if c == 'no': return '<span class="text-ink-400">—</span>' if not plain else '—'
+        if c == 'no': return '<span class="text-ink-500">—</span>' if not plain else '—'
         return html.escape(c)
     rows_html = '\n'.join(
         '<tr>' +
@@ -1369,20 +1459,22 @@ def index_page():
     faq_html = '\n'.join(f'<details><summary>{html.escape(q)}</summary><p>{a}</p></details>' for q, a in faqs)
 
     body = f'''
-<section class="vp-hero">
-<div class="container-page relative pt-24 pb-16 md:pt-32 md:pb-24">
-<span class="vp-pill mb-6">Vendure plugins by Hulo Global</span>
-<h1 class="max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">
+<section class="vp-hero pf-vd">
+<div class="container-page relative page-y">
+<span class="pf-badge">For Vendure</span>
+<h1 class="mt-5 max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">
 Production-grade plugins for your Vendure store.
 </h1>
-<p class="mt-7 max-w-2xl text-lg md:text-xl text-ink-600 leading-relaxed">
+<p class="mt-6 max-w-2xl text-lg md:text-xl text-ink-600 leading-relaxed">
 Battle-tested in our own UK e-commerce stack. One <code class="font-mono text-sm bg-ink-100 px-1.5 py-0.5 rounded">yarn add</code>, one config line, ready in 5 minutes.
 </p>
+<p class="pf-install"><strong>Install:</strong> one npm package per plugin, <code>npm install @huloglobal/vendure-plugin-&lt;name&gt;</code> (or yarn / pnpm), then register it in <code>vendure-config.ts</code>. Building on WordPress instead? The same plugins exist as <a href="/wordpress-plugins/" class="underline underline-offset-4">WordPress plugins</a>.</p>
 </div>
 </section>
 
-<section class="vp-section" style="background:#fff">
+<section class="vp-section pf-vd" style="background:#fff">
 <div class="container-page">
+<h2 class="text-3xl md:text-4xl font-bold tracking-tight text-ink-900" style="margin-bottom:40px">All nine Vendure plugins</h2>
 <div class="vp-cards-grid">
 {''.join(cards)}
 </div>
@@ -1400,7 +1492,7 @@ Battle-tested in our own UK e-commerce stack. One <code class="font-mono text-sm
 <table class="w-full" style="min-width:1320px">
 <thead>
 <tr>
-<th class="p-4 font-medium text-sm text-ink-500" style="text-align:left"></th>
+<th class="p-4 font-medium text-sm text-ink-500" style="text-align:left"><span class="sr-only">Feature</span></th>
 <th class="p-4 font-semibold text-ink-900" style="text-align:center">Quotations</th>
 <th class="p-4 font-semibold text-ink-900" style="text-align:center">Email Tracking</th>
 <th class="p-4 font-semibold text-ink-900" style="text-align:center">Geo Block</th>
@@ -1462,7 +1554,7 @@ A boot-time check emits a non-fatal warning if <code class="font-mono text-xs bg
 '''
     return header('Vendure plugins by Hulo Global',
                   'https://huloglobal.com/vendure-plugins/',
-                  'Production-grade Vendure plugins by Hulo Global — email tracking, geo-blocking, visitor analytics, fraud prevention, Trustpilot review requests. Drop-in, self-hosted, licensed.') + body + FOOTER
+                  'Production-grade Vendure plugins by Hulo Global — email tracking, geo-blocking, visitor analytics, fraud prevention, Trustpilot review requests. Drop-in, self-hosted, licensed.') + platform_band('vd') + body + FOOTER
 
 
 def plugin_page(p):
@@ -1555,21 +1647,20 @@ export const config: VendureConfig = {{
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Run the migration</h3>
 <p class="mt-2 text-ink-600">The plugin registers its own entities. Generate and run the migration like any other:</p>
-<div class="vp-code mt-3">yarn migration:generate Add{p['class']}Tables
+<div class="vp-code mt-3" tabindex="0">yarn migration:generate Add{p['class']}Tables
 yarn migration:run</div>
 </div>''' if needs_migration else '''
 <div class="mt-10 rounded-lg border border-ink-200 bg-white p-4 text-sm text-ink-700"><strong>No migration to run.</strong> The plugin creates its tables on first boot and upgrades them in place on later versions.</div>'''
 
     body = f'''
-<section class="vp-hero">
-<div class="container-page relative pt-12 pb-10 md:pt-16 md:pb-14">
-<img class="vp-plugin-logo" src="/vendure-plugins/logos/{p['slug']}.svg" alt="" width="56" height="56" aria-hidden="true">
-<nav class="mb-5 text-sm text-ink-600">
-<a href="/vendure-plugins/" class="hover:text-ink-900">Vendure plugins</a>
-<span class="mx-2 text-ink-400">/</span>
-<span class="text-ink-900 font-medium">{html.escape(p['title'])}</span>
-</nav>
-<h1 class="max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])}</h1>
+<section class="vp-hero pf-vd">
+<div class="container-page relative page-y">
+{crumbs([('Vendure plugins', '/vendure-plugins/'), (p['title'], None)])}
+<div class="flex items-center gap-4 flex-wrap" style="margin-bottom:20px">
+<img class="vp-plugin-logo" style="margin-bottom:0" src="/vendure-plugins/logos/{p['slug']}.svg" alt="" width="56" height="56">
+<span class="pf-badge">For Vendure</span>
+</div>
+<h1 class="max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])} for Vendure</h1>
 <p class="mt-6 max-w-2xl text-lg md:text-xl text-ink-600 leading-relaxed">{html.escape(p['tagline'])}</p>
 {proof_html}
 <div class="mt-8 flex flex-wrap items-center gap-3">
@@ -1577,8 +1668,9 @@ yarn migration:run</div>
 <a href="{BUY_BASE}/{pkg_short}?plan=lifetime" class="btn btn-secondary">Buy lifetime</a>
 <a href="#install" class="btn btn-secondary">Install</a>
 <a href="/vendure-plugins/{short_id}/docs/" class="btn btn-secondary">Read the manual</a>
-<a href="/vendure-plugins/{p['slug']}/changelog/" class="ml-auto" title="See what changed in each release"><!--email_off--><span class="text-xs text-ink-500 font-mono hover:underline" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span><!--/email_off--></a>
+<a href="/vendure-plugins/{p['slug']}/changelog/" class="ml-auto inline-flex items-center" style="min-height:24px" title="See what changed in each release"><span class="sr-only">Changelog, version </span><!--email_off--><span class="text-xs text-ink-500 font-mono hover:underline" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span><!--/email_off--></a>
 </div>
+<p class="pf-install"><strong>Install on Vendure:</strong> <!--email_off--><code>npm install {p['pkg']}</code><!--/email_off--> (or yarn / pnpm), then register <code>{p['class']}</code> in <code>vendure-config.ts</code>. <a href="#install" class="underline underline-offset-4">All steps</a></p>
 </div>
 </section>
 
@@ -1623,9 +1715,9 @@ yarn migration:run</div>
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Add the package</h3>
 <p class="mt-2 text-ink-600">Or run the one-line installer that does steps 1–3 for you:</p>
-<div class="vp-code mt-3">curl -sSL https://huloglobal.com/vendure-plugins/{short_id}/install.sh | bash</div>
+<div class="vp-code mt-3" tabindex="0">curl -sSL https://huloglobal.com/vendure-plugins/{short_id}/install.sh | bash</div>
 <p class="mt-3 text-sm text-ink-500">Prefer to do it by hand?</p>
-<div class="vp-code mt-2">yarn add {p['pkg']}
+<div class="vp-code mt-2" tabindex="0">yarn add {p['pkg']}
 <span class="vp-comment"># or</span> npm install {p['pkg']}
 <span class="vp-comment"># or</span> pnpm add {p['pkg']}</div>
 </div>
@@ -1633,13 +1725,13 @@ yarn migration:run</div>
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Register it</h3>
 <p class="mt-2 text-ink-600">In your <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">vendure-config.ts</code>:</p>
-<div class="vp-code mt-3">{config_block}</div>
+<div class="vp-code mt-3" tabindex="0">{config_block}</div>
 </div>
 
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Compile the admin UI</h3>
 <p class="mt-2 text-ink-600">Add the extension to your <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">compileUiExtensions</code> call so the plugin's page appears in the admin:</p>
-<div class="vp-code mt-3"><span class="vp-comment">// compile-admin-ui.ts</span>
+<div class="vp-code mt-3" tabindex="0"><span class="vp-comment">// compile-admin-ui.ts</span>
 import {{ compileUiExtensions }} from <span class="vp-str">'@vendure/ui-devkit/compiler'</span>;
 import {{ <span class="vp-key">{p['class']}</span> }} from <span class="vp-str">'{p['pkg']}'</span>;
 
@@ -1691,7 +1783,7 @@ compileUiExtensions({{
 '''
     return header(f"{p['title']} — Vendure plugin by Hulo Global",
                   f"https://huloglobal.com/vendure-plugins/{p['slug']}/",
-                  p['tagline']) + body + FOOTER
+                  p['tagline']) + platform_band('vd', p['slug'], p['title'], edition_title('wp', p['slug'], p['title'])) + body + FOOTER
 
 
 CHANGELOG_STYLE = """
@@ -1707,7 +1799,7 @@ CHANGELOG_STYLE = """
   box-shadow: 0 1px 3px rgba(15,20,25,.04); }
 .cl-release::before { content: ""; position: absolute; left: -1.75rem; top: 1.9rem;
   width: 12px; height: 12px; margin-left: 3px; border-radius: 50%;
-  background: #f59e0b; border: 2.5px solid #fff; box-shadow: 0 0 0 2px #e2e8f0; }
+  background: var(--pf-vd, #0f766e); border: 2.5px solid #fff; box-shadow: 0 0 0 2px #e2e8f0; }
 .cl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem .8rem; }
 .cl-version { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 1.35rem; font-weight: 700; color: #0f1419; letter-spacing: -.01em; }
@@ -1731,7 +1823,7 @@ CHANGELOG_STYLE = """
 .cl-list li strong { color: #0f1419; font-weight: 650; }
 .cl-list li code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: #f1f5f9; border: 1px solid #e2e8f0;
-  padding: .08em .35em; border-radius: 5px; white-space: nowrap; }
+  padding: .08em .35em; border-radius: 5px; overflow-wrap: anywhere; }
 @media (max-width: 640px) {
   .cl-rail { padding-left: 0; }
   .cl-rail::before, .cl-release::before { display: none; }
@@ -1778,16 +1870,11 @@ def changelog_page(p, releases):
         f"Latest release: <span class='font-mono'>v{html.escape(latest['version'])}</span> — {html.escape(pretty_date(latest['date']))}."
         if latest else 'No releases published yet.')
     body = f'''
-<section class="vp-hero">
-<div class="container-page relative pt-12 pb-10 md:pt-16 md:pb-14">
-<nav class="mb-5 text-sm text-ink-600">
-<a href="/vendure-plugins/" class="hover:text-ink-900">Vendure plugins</a>
-<span class="mx-2 text-ink-400">/</span>
-<a href="/vendure-plugins/{p['slug']}/" class="hover:text-ink-900">{html.escape(p['title'])}</a>
-<span class="mx-2 text-ink-400">/</span>
-<span class="text-ink-900 font-medium">Changelog</span>
-</nav>
-<h1 class="max-w-3xl text-4xl sm:text-5xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])} changelog</h1>
+<section class="vp-hero pf-vd">
+<div class="container-page relative page-y">
+{crumbs([('Vendure plugins', '/vendure-plugins/'), (p['title'], f"/vendure-plugins/{p['slug']}/"), ('Changelog', None)])}
+<span class="pf-badge">For Vendure</span>
+<h1 class="mt-4 max-w-3xl text-4xl sm:text-5xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])} for Vendure: changelog</h1>
 <p class="mt-4 max-w-2xl text-lg text-ink-600 leading-relaxed">Every release of <!--email_off--><code class="font-mono text-base">{html.escape(p['pkg'])}</code><!--/email_off-->. {latest_line}</p>
 <div class="mt-6 flex flex-wrap items-center gap-3">
 <a href="/vendure-plugins/{p['slug']}/" class="btn btn-secondary">Plugin page</a>
@@ -1807,7 +1894,7 @@ def changelog_page(p, releases):
 '''
     return header(f"Changelog — {p['title']} — Hulo Global",
                   f"https://huloglobal.com/vendure-plugins/{p['slug']}/changelog/",
-                  f"Release history and version notes for {p['pkg']}.") + CHANGELOG_STYLE + body + FOOTER
+                  f"Release history and version notes for {p['pkg']}.") + CHANGELOG_STYLE + platform_band('vd', p['slug'], p['title'], edition_title('wp', p['slug'], p['title'])) + body + FOOTER
 
 
 INSTALL_SH = '''#!/usr/bin/env bash
@@ -1914,7 +2001,7 @@ ROADMAP_STYLE = """
 .rm-vote:hover:not(:disabled){ border-color:var(--color-accent-500,#f59e0b); color:#b45309; }
 .rm-vote:disabled{ cursor:default; opacity:.75; }
 .rm-vote.voted{ background:#fff7ed; border-color:#f59e0b; color:#b45309; }
-.rm-empty { color:var(--color-ink-400,#94a3b8); font-size:13px; }
+.rm-empty { color:var(--color-ink-500,#5e6670); font-size:13px; }
 .rm-loading { color:var(--color-ink-500,#64748b); font-size:14px; padding:20px 0; }
 </style>
 """
@@ -2004,8 +2091,8 @@ def roadmap_page():
         'See what we\'re building for the HULO Vendure plugins, vote on what matters to you, and request a feature of your own.',
     )
     body = """
-<section class="vp-section bg-ink-50">
-<div class="container-page">
+<section class="bg-ink-50">
+<div class="container-page page-y">
 <div class="rm-hero">
 <span class="vp-pill">Roadmap</span>
 <h1 class="mt-4 text-4xl md:text-5xl font-bold tracking-tight text-ink-900">Help shape the plugins</h1>
@@ -2037,11 +2124,11 @@ def roadmap_page():
 <input id="rm-title" name="title" maxlength="160" required placeholder="e.g. Export the audit log as CSV">
 </div>
 <div class="rm-field">
-<label for="rm-desc">Any detail? <span style="font-weight:500;color:#94a3b8">(optional)</span></label>
+<label for="rm-desc">Any detail? <span style="font-weight:500;color:#5e6670">(optional)</span></label>
 <textarea id="rm-desc" name="description" maxlength="4000" placeholder="What problem would this solve for you?"></textarea>
 </div>
 <div class="rm-field">
-<label for="rm-email">Email <span style="font-weight:500;color:#94a3b8">(optional — for a reply)</span></label>
+<label for="rm-email">Email <span style="font-weight:500;color:#5e6670">(optional — for a reply)</span></label>
 <input id="rm-email" name="email" type="email" maxlength="255" placeholder="you@store.com">
 </div>
 <button type="submit" class="btn btn-primary w-full" style="text-align:center">Submit idea →</button>
