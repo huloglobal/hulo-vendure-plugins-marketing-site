@@ -26,7 +26,7 @@ SLUGS = ['payments', 'checkout-guard', 'fraud-prevention', 'business-credit', 'q
 
 # Free plugins accepted into the WordPress.org directory (slug list, filled in
 # as reviews come back). Until then the free plugin downloads from here.
-WPORG_LISTED: list[str] = []
+WPORG_LISTED: list[str] = ['geo-block']  # hulo-geo-block live on WordPress.org since 2026-11-04 (0.1.1)
 
 
 def parse_readme(path: Path) -> dict:
