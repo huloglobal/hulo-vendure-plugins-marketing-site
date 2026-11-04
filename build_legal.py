@@ -47,7 +47,7 @@ LEGAL_STYLE = '''
 .legal-shell .lede { font-size: 16px; color: var(--color-ink-600, #475569); margin: 0 0 28px; }
 .legal-shell .meta { display: flex; flex-wrap: wrap; gap: 12px 18px; font-size: 13px; color: var(--color-ink-500, #64748b); border-top: 1px solid var(--color-ink-100, #e2e8f0); border-bottom: 1px solid var(--color-ink-100, #e2e8f0); padding: 12px 0; margin-bottom: 32px; }
 .legal-shell .meta strong { color: var(--color-ink-800, #1e293b); }
-.legal-shell h2 { font-size: 21px; margin: 40px 0 12px; color: var(--color-ink-900); scroll-margin-top: 80px; }
+.legal-shell h2 { font-size: 21px; margin: 40px 0 12px; color: var(--color-ink-900); scroll-margin-top: 16px; }
 .legal-shell h3 { font-size: 16px; margin: 22px 0 8px; color: var(--color-ink-800); }
 .legal-shell p, .legal-shell li { font-size: 16px; line-height: 1.7; color: var(--color-ink-700, #334155); }
 .legal-shell ul, .legal-shell ol { padding-left: 22px; margin: 10px 0 16px; }

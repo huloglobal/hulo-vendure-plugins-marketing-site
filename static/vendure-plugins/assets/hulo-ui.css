@@ -1,0 +1,556 @@
+/* hulo-ui.css: the interactive parts of the generated plugin pages
+   (/vendure-plugins, /wordpress-plugins, manuals, changelogs, legal).
+   Pairs with hulo-ui.js; build_css.mjs appends this file to pages.css, so
+   pages load one stylesheet. That puts these rules before the pages' own
+   <style> blocks: where both style the same element, a rule here needs the
+   higher specificity (e.g. .vp-code.hu-oneline over .vp-code). Everything here either styles markup that reads
+   fine without JavaScript, or styles controls the script creates or
+   un-hides. Colours come from the site theme (pages.css) and the platform
+   identity variables (--pf, --pf-ink, --pf-bg, --pf-line). */
+
+/* ── Sticky bars and offsets ───────────────────────────────────────────
+   The site header is sticky; product pages add the section bar under it
+   (html.hu-has-secnav). Where there is no room for both:
+   - phones (below 768px): on a product page the section bar replaces the
+     header as the sticky bar (the header scrolls away with the page);
+   - short screens (500px tall or less: landscape phones, 400% zoom):
+     nothing sticks.
+   --hu-header-h / --hu-secnav-h are the bars' heights (measured by the
+   script; these fallbacks match the header at each width with scripts
+   off). --hu-hdr / --hu-nav are what each bar takes off the top of the
+   screen right now, for scroll-padding (WCAG 2.4.11, technique C43) and the
+   sticky price card. */
+:root { --hu-header-h: 203px; --hu-secnav-h: 41px; --hu-hdr: var(--hu-header-h); --hu-nav: 0px; }
+@media (min-width: 360px) { :root { --hu-header-h: 163px; } }
+@media (min-width: 600px) { :root { --hu-header-h: 123px; } }
+@media (min-width: 768px) { :root { --hu-header-h: 97px; --hu-secnav-h: 49px; } }
+@media (min-width: 1000px) { :root { --hu-header-h: 77px; } }
+.hu-has-secnav { --hu-nav: var(--hu-secnav-h); }
+@media (max-width: 767px) {
+  .hu-has-secnav { --hu-hdr: 0px; }
+  .hu-has-secnav body > header { position: relative; }
+}
+@media (max-height: 500px) {
+  :root, .hu-has-secnav { --hu-hdr: 0px; --hu-nav: 0px; }
+  body > header { position: relative; }
+}
+html { scroll-padding-top: calc(var(--hu-hdr) + var(--hu-nav)); scroll-padding-bottom: 4.5rem; }
+main [id], main [role="region"][tabindex], main [role="tabpanel"] { scroll-margin-top: 0.75rem; }
+#main[tabindex="-1"]:focus { outline: none; }
+
+/* Shown from the first paint when scripts run (html.hu-js, set in <head>),
+   invisible until hulo-ui.js has wired it up (.hu-ready), so nothing jumps
+   when the script arrives; not shown at all without scripts. */
+html:not(.hu-js) .hu-needs-js { display: none; }
+.hu-js .hu-needs-js:not(.hu-ready) { visibility: hidden; }
+/* A widget whose script failed (.hu-failed) shows its plain HTML. */
+.hu-needs-js.hu-failed { display: none !important; }
+/* Anything still waiting to be revealed if the script gives up. */
+html:not(.hu-js) .hu-reveal { opacity: 1; transform: none; }
+/* Before the script has run, lay out what it will leave (so nothing
+   collapses or jumps when it arrives on a slow device): the first tab panel
+   under the room its tab row will take, the monthly plan, the first
+   releases, a long release's first changes. Without scripts (or if the
+   script fails: no .hu-js) everything is listed in full. */
+.hu-js [data-tabs]:not(.hu-tabs-on):not(.hu-failed) { display: block !important; }
+.hu-js [data-tabs]:not(.hu-tabs-on):not(.hu-failed) > [data-tab] ~ [data-tab],
+.hu-js [data-tabs]:not(.hu-tabs-on):not(.hu-failed) .hu-tab-h { display: none; }
+.hu-js [data-tabs]:not(.hu-tabs-on):not(.hu-failed) > [data-tab]:not([data-tab] ~ [data-tab]) {
+  margin-top: calc(41px + 0.875rem); padding-top: 0; border-top: 0;
+}
+.hu-js .vp-step [data-tabs]:not(.hu-tabs-on):not(.hu-failed) > [data-tab]:not([data-tab] ~ [data-tab]) { margin-top: calc(41px + 0.5rem); }
+.hu-js .hu-tabs-lg:not(.hu-tabs-on):not(.hu-failed) > [data-tab]:not([data-tab] ~ [data-tab]) { margin-top: calc(49px + 2rem); }
+.hu-js [data-period]:not(.hu-period-on):not(.hu-failed) > [data-plan]:not([data-plan="monthly"]) { display: none; }
+.hu-js [data-period]:not(.hu-period-on):not(.hu-failed) > .hu-plan { margin-top: 0; padding-top: 0; border-top: 0; }
+.hu-js [data-changelog]:not(.hu-cl-on):not(.hu-failed) [data-cl-more] { display: none; }
+.hu-js [data-changelog]:not(.hu-failed) [data-clip]:not(.is-unclipped) .hu-cl-x { display: none; }
+
+/* ── In-page section bar (product pages) ───────────────────────────── */
+.hu-secnav {
+  position: sticky; top: var(--hu-hdr); z-index: 30;
+  background: #fff; border-bottom: 1px solid var(--color-ink-100, #e2e8f0);
+  box-shadow: 0 1px 0 rgb(15 23 42 / 0.02);
+}
+@media (max-height: 500px) { .hu-secnav { position: relative; } }
+.hu-secnav-list {
+  position: relative; display: flex; gap: 0.25rem; margin: 0; padding: 0; list-style: none;
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  scroll-padding-inline: 1.5rem 3rem;
+}
+.hu-secnav-list::-webkit-scrollbar { display: none; }
+/* Edge fades on sideways scrollers (section bar, tab rows, category chips on
+   phones): only the edge that hides something fades (the script sets
+   .is-overflowing / .is-scrolled / .is-end). */
+.hu-secnav-list.is-overflowing, .hu-tablist.is-overflowing, .hu-chips.is-overflowing { mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent); }
+.hu-secnav-list.is-overflowing.is-scrolled, .hu-tablist.is-overflowing.is-scrolled, .hu-chips.is-overflowing.is-scrolled {
+  mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+}
+.hu-secnav-list.is-overflowing.is-end, .hu-tablist.is-overflowing.is-end, .hu-chips.is-overflowing.is-end { mask-image: none; }
+.hu-secnav-list.is-overflowing.is-scrolled.is-end, .hu-tablist.is-overflowing.is-scrolled.is-end, .hu-chips.is-overflowing.is-scrolled.is-end {
+  mask-image: linear-gradient(to right, transparent, #000 2.5rem);
+}
+.hu-secnav li { flex: none; }
+.hu-secnav a {
+  display: inline-flex; align-items: center; min-height: 40px; padding: 0 0.7rem;
+  font-size: 0.875rem; font-weight: 600; color: var(--color-ink-600, #475569);
+  white-space: nowrap; text-decoration: none; box-shadow: inset 0 -2px 0 transparent;
+  transition: color 0.15s, box-shadow 0.15s;
+}
+@media (min-width: 768px) { .hu-secnav a { min-height: 48px; padding: 0 0.9rem; } }
+.hu-secnav a:hover { color: var(--color-ink-900, #0f172a); box-shadow: inset 0 -2px 0 var(--color-ink-200, #e2e8f0); }
+.hu-secnav a[aria-current="true"] { color: var(--pf-ink); box-shadow: inset 0 -3px 0 var(--pf); }
+.hu-secnav a:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: -3px; border-radius: 4px; }
+/* Manual pages: the "On this page" list follows the reader too. */
+.doc-toc a[aria-current="true"] { background: var(--pf-bg, #f0fdfa); color: var(--pf-ink, #115e59); font-weight: 600; }
+
+/* ── Tabs (install box, free / Pro, tiers) ─────────────────────────────
+   One row: on a narrow phone a long label wraps inside its tab (between
+   words: a tab is never narrower than its longest word, and a hyphenated
+   word stays whole) instead of pushing tabs onto a second row; if even that
+   does not fit, the row scrolls sideways, with a fade on the hidden edge. */
+.hu-tabs-on { display: block !important; }
+.hu-tabs-on .hu-tab-h { display: none; }
+.hu-tablist {
+  display: flex; flex-wrap: nowrap; gap: 0.25rem; margin: 0 0 0.875rem; overflow-x: auto; scrollbar-width: thin;
+  border-bottom: 1px solid var(--color-ink-200, #e2e8f0);
+}
+.hu-tab {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 1 auto; min-width: min-content; min-height: 40px;
+  padding: 0.35rem 0.8rem; border-radius: 0.5rem 0.5rem 0 0;
+  background: transparent; color: var(--color-ink-600, #475569); text-align: center;
+  font: inherit; font-size: 0.875rem; font-weight: 600; line-height: 1.25; cursor: pointer;
+  box-shadow: inset 0 -2px 0 transparent; transition: color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+@media (max-width: 400px) { .hu-tab { padding: 0.35rem 0.55rem; } }
+.hu-nobr { white-space: nowrap; }
+.hu-tab:hover { color: var(--color-ink-900, #0f172a); background: var(--color-ink-50, #f8fafc); }
+.hu-tab[aria-selected="true"] { color: var(--pf-ink, var(--color-ink-900)); box-shadow: inset 0 -3px 0 var(--pf, var(--color-ink-900)); }
+.hu-tab:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: -2px; }
+.hu-tabs-lg > .hu-tablist { margin-bottom: 2rem; }
+.hu-tabs-lg .hu-tab { min-height: 48px; padding: 0.5rem 1.1rem; font-size: 1rem; }
+[role="tabpanel"]:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: 4px; border-radius: 6px; }
+.hu-tabs-on > [role="tabpanel"]:not([hidden]) { animation: hu-fade 0.22s ease both; }
+/* Without the script, stacked panels get a divider between them. */
+.hu-tabs-stack:not(.hu-tabs-on) > [data-tab] + [data-tab] { margin-top: 3.5rem; padding-top: 3.5rem; border-top: 1px solid var(--color-ink-200, #e2e8f0); }
+@keyframes hu-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── Install box in the hero ───────────────────────────────────────── */
+.hu-install { max-width: 44rem; }
+.hu-install > p { margin: 0; }
+.hu-install > p + p, .hu-install [data-tab] > p + p { margin-top: 0.5rem; }
+.hu-install-lead { margin-bottom: 0.75rem !important; }
+.hu-install:not(.hu-tabs-on) [data-tab] { margin-top: 0.875rem; }
+.hu-install .hu-tab-h { font-weight: 700; color: var(--color-ink-900, #0f172a); }
+.hu-install .hu-codewrap { margin-top: 0.5rem; }
+.hu-install .btn { margin-top: 0.75rem; padding: 0.6rem 1.1rem; font-size: 0.9rem; }
+.hu-ver-hero { align-self: center; }
+
+/* ── Code blocks with a copy button ───────────────────────────────── */
+.hu-code {
+  margin: 0; padding: 0.7rem 0.9rem; border-radius: 0.5rem;
+  background: #0f172a; color: #f1f5f9; white-space: pre; overflow-x: auto;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 13px; line-height: 1.65;
+}
+/* A one-line command wraps on a phone at the <wbr> after each '/' and '-'
+   in a word (build.py wbr()), never in the middle of a word. */
+.hu-code.hu-oneline, .vp-code.hu-oneline, .doc-code.hu-oneline, .doc-body .doc-code.hu-oneline { white-space: pre-wrap; overflow-wrap: break-word; }
+/* Multi-line code wraps a line that does not fit (build.py wrap_lines()):
+   each line is a full-width inline block (.hu-ln: inline, so the line feeds
+   between them stay the only line breaks in the text) whose continuation is
+   indented two characters past the line's own indentation (.hu-i0 …
+   .hu-i12), so a wrapped line reads as the continuation it is. Copying,
+   by the button or a selection, gives the code as written. */
+.hu-code.hu-wrap, .vp-code.hu-wrap, .doc-code.hu-wrap, .doc-body .doc-code.hu-wrap { white-space: pre-wrap; overflow-wrap: break-word; }
+.hu-wrap .hu-ln { display: inline-block; width: 100%; vertical-align: top; box-sizing: border-box; overflow-wrap: break-word; }
+/* The manuals' <code> inside <pre> resets overflow-wrap; a long token in
+   wrapping code may still break. */
+.doc-body pre.doc-code.hu-oneline code, .doc-body pre.doc-code.hu-wrap code { overflow-wrap: break-word; }
+.hu-wrap .hu-i0 { padding-left: 2ch; text-indent: -2ch; }
+.hu-wrap .hu-i2 { padding-left: 4ch; text-indent: -4ch; }
+.hu-wrap .hu-i4 { padding-left: 6ch; text-indent: -6ch; }
+.hu-wrap .hu-i6 { padding-left: 8ch; text-indent: -8ch; }
+.hu-wrap .hu-i8 { padding-left: 10ch; text-indent: -10ch; }
+.hu-wrap .hu-i10 { padding-left: 12ch; text-indent: -12ch; }
+.hu-wrap .hu-i12 { padding-left: 14ch; text-indent: -14ch; }
+.pf-install .hu-code code, .hu-code code { background: none; border: 0; padding: 0; color: inherit; font-size: inherit; }
+.hu-code .vp-comment { color: #a3b1c6; } .hu-code .vp-key { color: #fbbf24; } .hu-code .vp-str { color: #86efac; }
+.hu-codewrap { position: relative; }
+.hu-codewrap.hu-has-copy { background: #0f172a; border-radius: 0.625rem; }
+.hu-codewrap > .vp-code, .hu-codewrap > .doc-code { margin: 0 !important; }
+/* One line: the button sits beside the command. */
+.hu-codewrap-1.hu-has-copy { display: flex; align-items: flex-start; }
+.hu-codewrap-1.hu-has-copy > .hu-code, .hu-codewrap-1.hu-has-copy > .vp-code, .hu-codewrap-1.hu-has-copy > .doc-code { flex: 1 1 auto; min-width: 0; padding-right: 0.5rem; }
+/* Several lines: the button sits in a strip above the first line, so the
+   code keeps the block's full width. */
+.hu-codewrap-n.hu-has-copy > .hu-copy { position: absolute; top: 0.45rem; right: 0.45rem; margin: 0; }
+.hu-codewrap-n.hu-has-copy > .hu-code, .hu-codewrap-n.hu-has-copy > .vp-code, .hu-codewrap-n.hu-has-copy > .doc-code,
+.hu-js .hu-codewrap-n:not(.hu-failed) > [data-copy] { padding-top: 2.75rem; }
+.vp-step > .hu-codewrap, .vp-step > .hu-tabs { margin-left: 46px; }
+@media (max-width: 639px) { .vp-step > .hu-codewrap, .vp-step > .hu-tabs { margin-left: 0; } }
+.vp-step .hu-tabs .hu-tablist { margin-bottom: 0.5rem; }
+.hu-copy {
+  flex: none; margin: 0.45rem 0.45rem 0.45rem 0;
+  display: inline-flex; align-items: center; gap: 0.35rem; min-height: 32px; min-width: 4.25rem; justify-content: center;
+  padding: 0.25rem 0.65rem; border: 1px solid rgb(255 255 255 / 0.28); border-radius: 0.4rem;
+  background: rgb(15 23 42 / 0.92); color: #f1f5f9; font: inherit; font-size: 0.75rem; font-weight: 600; line-height: 1;
+  cursor: pointer; transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.hu-copy:hover { background: #1e293b; border-color: rgb(255 255 255 / 0.5); }
+.hu-copy:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.hu-copy.is-done { color: #86efac; border-color: #86efac; }
+.hu-copy svg { width: 14px; height: 14px; flex: none; }
+.doc-body .hu-codewrap { margin: 18px 0; }
+
+/* ── Pricing period switch (Monthly | Annual | Lifetime) ────────────── */
+/* One pill-shaped row; where the three labels cannot fit (enlarged text
+   spacing on a narrow phone) it wraps onto a second row instead of
+   widening the price card. The radius is half the one-row height. */
+.hu-seg {
+  display: inline-flex; flex-wrap: wrap; gap: 2px; margin: 0 0 1.25rem; padding: 4px; max-width: 100%;
+  min-inline-size: 0; border: 0; border-radius: 22px; background: var(--color-ink-100, #f1f5f9);
+}
+.hu-seg legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.hu-seg label { position: relative; display: block; flex: 1 1 auto; min-width: 0; }
+.hu-seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.hu-seg input + span {
+  display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 36px; padding: 0 0.95rem;
+  border-radius: 999px; color: var(--color-ink-600, #475569); font-size: 0.875rem; font-weight: 600; white-space: nowrap;
+  transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+@media (max-width: 400px) { .hu-seg input + span { padding: 0 0.5rem; font-size: 0.8125rem; } }
+.hu-seg label:hover input:not(:checked) + span { color: var(--color-ink-900, #0f172a); }
+.hu-seg input:checked + span { background: #fff; color: var(--color-ink-900, #0f172a); box-shadow: 0 1px 2px rgb(15 23 42 / 0.14), 0 1px 1px rgb(15 23 42 / 0.06); }
+.hu-seg input:focus-visible + span { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: 2px; }
+.hu-plan + .hu-plan { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-ink-200, #e2e8f0); }
+.hu-period-on .hu-plan { margin-top: 0; padding-top: 0; border-top: 0; }
+.hu-plan.hu-swap { animation: hu-fade 0.28s ease both; }
+.vp-price-card .hu-seg { display: flex; justify-content: space-between; }
+.vp-price-card .hu-seg input + span { padding: 0 0.6rem; }
+/* The plan's own price ("Then £9.95/month"), so Monthly and Annual differ at a glance. */
+.hu-plan-then { margin: 0.6rem 0 0; font-size: 0.95rem; color: var(--color-ink-700, #334155); }
+.hu-plan-price { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.015em; color: var(--color-ink-900, #0f172a); }
+
+/* ── What's new (release notes on product pages) ──────────────────── */
+.hu-cl-lead { margin-top: 1rem; color: var(--color-ink-600, #475569); }
+.hu-cl-lead a { text-decoration: underline; text-underline-offset: 3px; }
+.hu-cl-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; margin-top: 1.75rem; }
+/* Always rendered (so screen readers know the region before it speaks). */
+.hu-cl-status { margin: 0; font-size: 0.875rem; color: var(--color-ink-600, #475569); }
+.hu-rels { margin-top: 1.5rem; }
+.hu-rel {
+  margin-top: 0.75rem; border: 1px solid var(--color-ink-200, #e2e8f0); border-radius: 0.875rem; background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.hu-rel:first-child { margin-top: 0; }
+.hu-rel:hover { border-color: var(--color-ink-300, #cbd5e1); }
+.hu-rel[open] { box-shadow: 0 1px 3px rgb(15 23 42 / 0.05), 0 8px 24px -16px rgb(15 23 42 / 0.25); }
+.hu-rel > summary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.7rem; min-height: 52px;
+  padding: 0.75rem 1.1rem; list-style: none; cursor: pointer; border-radius: 0.875rem;
+}
+.hu-rel > summary::-webkit-details-marker { display: none; }
+.hu-rel > summary::after {
+  content: ""; flex: none; margin-left: auto; width: 0.55rem; height: 0.55rem;
+  border-right: 2px solid var(--color-ink-500, #64748b); border-bottom: 2px solid var(--color-ink-500, #64748b);
+  transform: translateY(-2px) rotate(45deg); transition: transform 0.2s;
+}
+.hu-rel[open] > summary::after { transform: translateY(2px) rotate(-135deg); }
+.hu-rel > summary:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: 2px; }
+.hu-ver {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.95rem; font-weight: 700; color: var(--pf-ink, #0f172a);
+  background: var(--pf-bg, #f8fafc); border: 1px solid var(--pf-line, #e2e8f0); border-radius: 999px; padding: 0.1rem 0.6rem;
+}
+.hu-rel-date, .hu-rel-scope { font-size: 0.875rem; color: var(--color-ink-600, #475569); }
+.hu-pill, .hu-tag {
+  display: inline-flex; align-items: center; border-radius: 999px; padding: 0.1rem 0.5rem;
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; line-height: 1.5; white-space: nowrap;
+}
+.hu-pill-new { color: #fff; background: var(--pf, #0f766e); }
+.hu-pill-latest { color: #92400e; background: #fef3c7; border: 1px solid #fde68a; }
+.hu-tag-sec { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; }
+.hu-rel-body { padding: 0 1.1rem 1.1rem; border-top: 1px solid var(--color-ink-100, #f1f5f9); }
+.hu-rel-intro { margin: 0.9rem 0 0; color: var(--color-ink-700, #334155); font-size: 0.95rem; line-height: 1.65; }
+.hu-grp { margin-top: 0.9rem; }
+.hu-grp-label {
+  display: inline-block; margin: 0; padding: 0.12rem 0.55rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 700;
+  letter-spacing: 0.07em; text-transform: uppercase; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0;
+}
+/* Kind modifiers are is-*: a bare "fixed" is Tailwind's position: fixed. */
+.hu-grp-label.is-added { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
+.hu-grp-label.is-changed { color: #92400e; background: #fffbeb; border-color: #fde68a; }
+.hu-grp-label.is-fixed { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
+.hu-grp-label.is-pro { color: var(--pf-ink, #334155); background: var(--pf-bg, #f8fafc); border-color: var(--pf-line, #e2e8f0); }
+.hu-cl-list { margin: 0.4rem 0 0; padding: 0; list-style: none; }
+.hu-cl-list li {
+  position: relative; margin: 0.45rem 0; padding-left: 1.1rem; color: var(--color-ink-700, #334155);
+  font-size: 0.95rem; line-height: 1.65; overflow-wrap: anywhere;
+}
+.hu-cl-list li::before { content: ""; position: absolute; left: 0; top: 0.66em; width: 6px; height: 6px; border-radius: 50%; background: var(--color-ink-300, #cbd5e1); }
+.hu-cl-list li .hu-tag, .cl-list li .hu-tag { margin-right: 0.15rem; vertical-align: 0.08em; }
+.hu-cl-list li strong { color: var(--color-ink-900, #0f172a); font-weight: 650; }
+.hu-cl-list li code, .hu-rel-intro code {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.85em; background: var(--color-ink-50, #f8fafc);
+  border: 1px solid var(--color-ink-100, #f1f5f9); border-radius: 4px; padding: 0.05em 0.3em;
+}
+/* Nested items ('  - ' in CHANGELOG.md) and the paragraph after them. */
+ul.hu-cl-sub { margin: 0.35rem 0 0.15rem; padding: 0; list-style: none; }
+ul.hu-cl-sub > li { position: relative; margin: 0.3rem 0; padding-left: 1rem; font-size: 0.925rem; line-height: 1.6; }
+ul.hu-cl-sub > li::before { content: ""; position: absolute; left: 0.1rem; top: 0.8em; width: 0.45rem; height: 2px; border-radius: 1px; background: var(--color-ink-400, #94a3b8); }
+.hu-cl-tail { margin: 0.4rem 0 0; }
+/* A bold line heading the entries under it (not an entry itself). */
+.hu-subgrp { margin-top: 0.9rem; }
+.hu-subhead { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-ink-900, #0f172a); }
+.hu-subhead + .hu-cl-list, .hu-subhead + .cl-list { margin-top: 0.25rem; }
+/* WordPress releases: one group per edition (free plugin, Pro add-on), its
+   changes under the same kind labels as the Vendure pages. */
+.hu-grp-ed + .hu-grp-ed { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--color-ink-100, #f1f5f9); }
+.hu-ed-label { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-ink-900, #0f172a); }
+.hu-grp-ed > .hu-subgrp { margin-top: 0.75rem; }
+.hu-grp-sub { margin-bottom: 0; }
+/* A long release that opens by default: its first changes, then "Show all
+   N changes" (the script; without it every change is listed). */
+.hu-clip-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem; min-height: 36px; margin-top: 0.9rem; padding: 0.3rem 0.85rem;
+  border: 1px solid var(--color-ink-300, #cbd5e1); border-radius: 999px; background: #fff; color: var(--color-ink-800, #1e293b);
+  font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: background-color 0.15s, border-color 0.15s;
+}
+.hu-clip-btn:hover { background: var(--color-ink-50, #f8fafc); border-color: var(--color-ink-400, #94a3b8); }
+.hu-clip-btn::after { content: ""; display: inline-block; width: 0.45rem; height: 0.45rem; margin-left: 0.15rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform 0.2s; }
+.hu-clip-btn[aria-expanded="true"]::after { transform: translateY(2px) rotate(-135deg); }
+.hu-more { margin-top: 0.75rem; }
+.hu-more-btn { margin-top: 1rem; }
+.hu-more-btn::after { content: ""; display: inline-block; width: 0.45rem; height: 0.45rem; margin-left: 0.15rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform 0.2s; }
+.hu-more-btn[aria-expanded="true"]::after { transform: translateY(2px) rotate(-135deg); }
+/* Changelog page: the filter chips sit above the release rail. */
+.cl-tools { max-width: 50rem; margin: 0 auto 1.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; }
+
+/* ── Filter chips (changelog kinds, plugin categories) ────────────── */
+.hu-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0; padding: 0; border: 0; min-inline-size: 0; }
+.hu-chips legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.hu-chip { position: relative; display: block; }
+.hu-chip input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.hu-chip > span {
+  display: inline-flex; align-items: center; gap: 0.45rem; min-height: 36px; padding: 0.3rem 0.85rem;
+  border: 1px solid var(--color-ink-200, #e2e8f0); border-radius: 999px; background: #fff;
+  color: var(--color-ink-700, #334155); font-size: 0.875rem; font-weight: 600; line-height: 1.2;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+}
+.hu-chip:hover > span { border-color: var(--color-ink-400, #94a3b8); }
+.hu-chip input:checked + span { background: var(--color-ink-900, #0f172a); border-color: var(--color-ink-900, #0f172a); color: #fff; }
+.hu-chip input:focus-visible + span { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: 2px; }
+.hu-chip-n { font-size: 0.75rem; font-weight: 700; color: var(--color-ink-600, #475569); }
+.hu-chip input:checked + span .hu-chip-n { color: #e2e8f0; }
+
+/* ── Plugin catalogue filter (index pages) ─────────────────────────────
+   The category chips, then the search box with the result count beside it. */
+.hu-cat { margin: 0 0 1.5rem; }
+/* Phones: the category chips are one row that scrolls sideways, edge to
+   edge, so the cards start near the top of the screen. */
+@media (max-width: 639px) {
+  .hu-cat .hu-chips {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    margin-inline: -1rem; padding: 4px 1rem; scroll-padding-inline: 1rem;
+  }
+  .hu-cat .hu-chips::-webkit-scrollbar { display: none; }
+  .hu-cat .hu-chip { flex: none; }
+  .hu-cat .hu-chip > span { white-space: nowrap; }
+}
+.hu-cat-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; margin-top: 1rem; }
+.hu-search { position: relative; flex: 0 1 22rem; min-width: min(100%, 15rem); }
+.hu-search input {
+  width: 100%; min-height: 44px; padding: 0.5rem 0.9rem 0.5rem 2.5rem; border: 1px solid var(--color-ink-300, #cbd5e1);
+  border-radius: 999px; background: #fff; color: var(--color-ink-900, #0f172a); font: inherit; font-size: 1rem;
+}
+.hu-search input::placeholder { color: var(--color-ink-500, #64748b); }
+.hu-search input:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: 2px; border-color: transparent; }
+.hu-search svg { position: absolute; left: 0.95rem; top: 50%; width: 1rem; height: 1rem; transform: translateY(-50%); color: var(--color-ink-500, #64748b); pointer-events: none; }
+@media (max-width: 639px) { .hu-search { flex-basis: 100%; } }
+.hu-cat-count { margin: 0; font-size: 0.875rem; color: var(--color-ink-600, #475569); }
+.hu-cat-empty { margin: 0; padding: 2rem; border: 1px dashed var(--color-ink-300, #cbd5e1); border-radius: 1rem; text-align: center; color: var(--color-ink-600, #475569); }
+.hu-cat-empty .btn { margin-top: 1rem; }
+.hu-ver-link { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 24px; font-size: 0.8125rem; color: var(--color-ink-600, #475569); text-decoration: none; white-space: nowrap; }
+.hu-ver-link:hover { color: var(--color-ink-900, #0f172a); text-decoration: underline; text-underline-offset: 3px; }
+.hu-ver-link .hu-ver { font-size: 0.75rem; padding: 0.05rem 0.5rem; }
+.vp-card-top .vp-plugin-logo { margin-bottom: 18px; }
+.vp-card-actions > p:first-child { flex: 1 0 100%; margin-top: 0; }
+
+/* ── Screenshots + lightbox (WordPress pages) ──────────────────────── */
+.hu-shots { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; margin: 2rem 0 0; padding: 0; list-style: none; }
+@media (min-width: 640px) { .hu-shots { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .hu-shots { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.hu-shots-head { max-width: 44rem; margin-inline: auto; }
+.hu-shots figure { margin: 0; }
+.hu-shot {
+  display: block; overflow: hidden; aspect-ratio: 16 / 10; border: 1px solid var(--color-ink-200, #e2e8f0); border-radius: 0.75rem;
+  background: var(--color-ink-50, #f8fafc); transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+.hu-shot picture { display: block; height: 100%; }
+.hu-shot img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.hu-shot:focus-visible { transform: translateY(-2px); border-color: var(--pf-line, #cbd5e1); box-shadow: var(--shadow-card, 0 8px 24px -12px rgb(0 0 0 / 0.12)); }
+.hu-shots figcaption { margin-top: 0.6rem; font-size: 0.875rem; line-height: 1.55; color: var(--color-ink-600, #475569); }
+.hu-shot-n { font-weight: 700; color: var(--color-ink-900, #0f172a); }
+/* The dialog has a fixed height (from the screenshots' shape, --hu-lb-ratio,
+   set by the script), so it never resizes or re-centres as captions change,
+   and never scrolls: title bar, image (contained) and caption, Previous /
+   Next. */
+.hu-lightbox {
+  --hu-lb-w: min(1200px, calc(100vw - 2rem));
+  width: var(--hu-lb-w); max-width: none;
+  height: min(calc(100vh - 2rem), calc((var(--hu-lb-w) - 2.2rem) * var(--hu-lb-ratio, 0.625) + 15rem));
+  height: min(calc(100dvh - 2rem), calc((var(--hu-lb-w) - 2.2rem) * var(--hu-lb-ratio, 0.625) + 15rem));
+  max-height: none; margin: auto; padding: 0; border: 0; border-radius: 1rem; overflow: hidden;
+  background: #fff; color: var(--color-ink-800, #1e293b); box-shadow: 0 24px 64px rgb(0 0 0 / 0.35);
+}
+.hu-lightbox[open] { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; }
+.hu-lightbox::backdrop { background: rgb(15 23 42 / 0.78); }
+.hu-lightbox[open] { animation: hu-pop 0.2s ease both; }
+@keyframes hu-pop { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
+html:has(.hu-lightbox[open]) { overflow: hidden; }
+.hu-lb-bar { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.5rem 0.5rem 1.1rem; border-bottom: 1px solid var(--color-ink-100, #f1f5f9); }
+.hu-lb-title { margin: 0 auto 0 0; font-size: 0.95rem; font-weight: 700; color: var(--color-ink-900, #0f172a); }
+.hu-lb-full { display: inline-flex; align-items: center; min-height: 44px; padding: 0 0.5rem; font-size: 0.875rem; font-weight: 600; color: var(--color-ink-700, #334155); text-decoration: underline; text-underline-offset: 3px; }
+.hu-lb-full:hover { color: var(--color-ink-900, #0f172a); }
+.hu-lb-full:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: 2px; border-radius: 4px; }
+.hu-lb-close { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; border-radius: 0.5rem; background: transparent; color: var(--color-ink-700, #334155); cursor: pointer; }
+.hu-lb-close:hover { background: var(--color-ink-100, #f1f5f9); color: var(--color-ink-900, #0f172a); }
+.hu-lb-close svg { width: 20px; height: 20px; }
+.hu-lb-body { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+.hu-lb-stage { position: relative; min-height: 0; margin: 1rem 1.1rem 0; }
+.hu-lb-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; object-fit: contain;
+  filter: drop-shadow(0 0 1px rgb(15 23 42 / 0.35)) drop-shadow(0 6px 16px rgb(15 23 42 / 0.12));
+}
+.hu-lb-cap {
+  min-height: calc(3 * 1.55em + 0.85rem); width: 100%; max-width: 60rem; margin: 0 auto; padding: 0.85rem 1.1rem 0;
+  text-align: center; font-size: 0.95rem; line-height: 1.55; color: var(--color-ink-700, #334155);
+}
+.hu-lb-nav { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 1.1rem 1.1rem; }
+.hu-lb-nav .btn { padding: 0.6rem 1.1rem; }
+/* Phones and short screens: the whole screen, the image full width; on a
+   phone held upright the image and its caption sit together mid-screen. */
+@media (max-width: 640px), (max-height: 500px) {
+  .hu-lightbox { width: 100vw; height: 100vh; height: 100dvh; margin: 0; border-radius: 0; }
+  .hu-lb-bar { padding: 0.25rem 0.25rem 0.25rem 1rem; }
+  .hu-lb-stage { margin: 0; }
+  .hu-lb-img { filter: none; }
+  .hu-lb-cap { min-height: 0; padding: 0.75rem 1rem 0; font-size: 0.875rem; line-height: 1.5; }
+  .hu-lb-nav { padding: 0.6rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 640px) and (orientation: portrait) {
+  .hu-lb-body { display: flex; flex-direction: column; justify-content: center; }
+  .hu-lb-stage { flex: 0 1 auto; width: 100%; aspect-ratio: 1 / var(--hu-lb-ratio, 0.625); }
+}
+/* Short landscape screens: the image beside the caption and the buttons. */
+@media (max-height: 500px) and (min-width: 560px) and (orientation: landscape) {
+  .hu-lightbox[open] { grid-template-columns: minmax(0, 1fr) min(18rem, 38vw); grid-template-rows: auto minmax(0, 1fr) auto; }
+  .hu-lb-bar { grid-column: 1 / -1; }
+  .hu-lb-body { display: contents; }
+  .hu-lb-stage { grid-column: 1; grid-row: 2 / 4; margin: 0.5rem 0 0.5rem 0.5rem; }
+  .hu-lb-cap { grid-column: 2; grid-row: 2; align-self: start; text-align: left; padding: 0.75rem 1rem 0; }
+  .hu-lb-nav { grid-column: 2; grid-row: 3; flex-wrap: wrap; padding: 0.5rem 1rem 0.75rem; }
+  .hu-lb-nav .btn { flex: 1 1 auto; justify-content: center; padding: 0.5rem 0.8rem; }
+}
+@media (max-height: 500px) and (min-width: 560px) and (max-width: 679px) and (orientation: landscape) {
+  .hu-lightbox[open] { grid-template-columns: minmax(0, 1fr) min(18rem, 46vw); }
+  .hu-lb-nav { gap: 0.5rem; padding-inline: 0.75rem; }
+}
+/* Tiny screens (400% zoom and the like): one column that scrolls. */
+@media (max-height: 300px) {
+  .hu-lightbox { overflow-y: auto; }
+  .hu-lightbox[open], .hu-lb-body { display: block; }
+  .hu-lb-stage { width: 100%; aspect-ratio: 1 / var(--hu-lb-ratio, 0.625); margin: 0; }
+}
+
+/* ── FAQ: smooth open / close, "Expand all" ───────────────────────── */
+.vp-faq details, .hu-rel { interpolate-size: allow-keywords; }
+.vp-faq details::details-content, .hu-rel::details-content {
+  block-size: 0; overflow-y: clip;
+  transition: block-size 0.3s ease, content-visibility 0.3s ease allow-discrete;
+}
+.vp-faq details[open]::details-content, .hu-rel[open]::details-content { block-size: auto; }
+.vp-faq details > summary::after { transition: color 0.15s, transform 0.15s; }
+.vp-faq summary:hover::after { color: var(--color-ink-700, #334155); }
+.hu-expand-bar { display: flex; justify-content: flex-end; margin: 0 0 0.75rem; }
+.hu-expand {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0.3rem 0.85rem; border: 1px solid var(--color-ink-300, #cbd5e1);
+  border-radius: 999px; background: #fff; color: var(--color-ink-800, #1e293b); font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.hu-expand:hover { background: var(--color-ink-50, #f8fafc); border-color: var(--color-ink-400, #94a3b8); }
+
+/* ── Reveal on scroll, hover and focus polish ─────────────────────────
+   Lifts and shadows on hover only where there is a real pointer to hover
+   with (a tap on a touch screen must not leave a card lifted); the focus
+   variants apply everywhere. */
+.hu-reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.5s ease var(--hu-d, 0s), transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) var(--hu-d, 0s); }
+.hu-reveal.hu-in { opacity: 1; transform: none; }
+.vp-card { transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease; }
+.vp-card:focus-within { transform: translateY(-3px); box-shadow: 0 12px 32px -12px rgb(15 23 42 / 0.22); }
+.vp-card h3 a { text-decoration-thickness: 2px; }
+.vp-price-card, .vp-compare-card { transition: box-shadow 0.2s ease, transform 0.2s ease; }
+@media (hover: hover) {
+  .vp-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px -12px rgb(15 23 42 / 0.22); }
+  .vp-price-card:hover { box-shadow: 0 2px 4px rgb(15 23 42 / 0.05), 0 16px 32px -16px rgb(15 23 42 / 0.25); }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -8px rgb(15 23 42 / 0.55); }
+  .btn-secondary:hover { transform: translateY(-1px); }
+  .hu-shot:hover { transform: translateY(-2px); border-color: var(--pf-line, #cbd5e1); box-shadow: var(--shadow-card, 0 8px 24px -12px rgb(0 0 0 / 0.12)); }
+}
+.btn:active { transform: translateY(0); box-shadow: none; }
+.pf-switch, .vp-crumbs a, .hu-cl-lead a { transition: text-decoration-color 0.15s, color 0.15s; }
+.hu-top {
+  position: fixed; right: 1rem; bottom: 1rem; z-index: 35; display: grid; place-items: center; width: 44px; height: 44px;
+  border-radius: 999px; background: var(--color-ink-900, #0f172a); color: #fff; cursor: pointer;
+  box-shadow: 0 8px 20px -6px rgb(15 23 42 / 0.45);
+  opacity: 0; visibility: hidden; transform: translateY(8px);
+  transition: opacity 0.2s, transform 0.2s, visibility 0s linear 0.2s, background-color 0.15s;
+}
+.hu-top.is-on { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+.hu-top:hover { background: var(--color-ink-700, #334155); }
+.hu-top:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: 3px; }
+.hu-top svg { width: 20px; height: 20px; }
+@media (min-width: 768px) { .hu-top { right: 1.5rem; bottom: 1.5rem; } }
+@media (max-height: 300px) { .hu-top { display: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .hu-reveal { opacity: 1; transform: none; }
+  .vp-card:hover, .vp-card:focus-within, .btn-primary:hover, .btn-secondary:hover, .hu-shot:hover, .hu-shot:focus-visible { transform: none; }
+  .vp-faq details::details-content, .hu-rel::details-content { transition: none; }
+}
+
+/* ── Forced colours (Windows contrast themes) ──────────────────────────
+   Backgrounds and box-shadows are dropped there, so every selected or
+   current state is drawn again with system colours. */
+@media (forced-colors: active) {
+  .hu-tab, .hu-secnav a { border-bottom: 3px solid Canvas; }
+  .hu-tab[aria-selected="true"], .hu-secnav a[aria-current="true"] { border-bottom-color: Highlight; }
+  .hu-secnav-list.is-overflowing { mask-image: none; }
+  .hu-seg input + span, .hu-chip > span { border: 1px solid ButtonText; }
+  .hu-seg input:checked + span, .hu-chip input:checked + span {
+    forced-color-adjust: none; background: Highlight; color: HighlightText; border-color: Highlight;
+  }
+  .hu-chip input:checked + span .hu-chip-n { color: HighlightText; }
+  .hu-seg input:focus-visible + span, .hu-chip input:focus-visible + span { outline: 2px solid CanvasText; }
+  .hu-lightbox { border: 1px solid CanvasText; }
+  .hu-top, .hu-lb-close, .hu-expand { border: 1px solid ButtonText; }
+  .hu-pill, .hu-grp-label, .hu-clip-btn { border: 1px solid CanvasText; }
+  .hu-rel > summary::after, .hu-more-btn::after, .hu-clip-btn::after { border-color: CanvasText; }
+  .hu-secnav-list.is-overflowing, .hu-tablist.is-overflowing, .hu-chips.is-overflowing { mask-image: none !important; }
+  ul.hu-cl-sub > li::before, .hu-cl-list li::before { background: CanvasText; }
+}
+
+/* ── Print: every plan, tab panel and release (the script un-hides them
+   on beforeprint), under their own headings; no controls. */
+@media print {
+  .hu-reveal { opacity: 1 !important; transform: none !important; }
+  .hu-secnav, .hu-top, .hu-copy, .hu-cat, .hu-expand-bar, .hu-tablist, .hu-seg, .hu-more-btn, .hu-clip-btn,
+  [data-cl-tools], .hu-cl-tools, .cl-tools { display: none !important; }
+  /* Folded releases and FAQ answers print in full (the script also opens
+     them on beforeprint, for browsers without ::details-content). */
+  .hu-rel::details-content, .vp-faq details::details-content { content-visibility: visible !important; block-size: auto !important; transition: none !important; }
+  .hu-js [data-changelog] [data-clip] .hu-cl-x { display: revert !important; }
+  .hu-tabs-on .hu-tab-h { display: block; }
+  .hu-printing > [data-tab] + [data-tab] { margin-top: 1.5rem; }
+  .hu-printing .hu-plan + .hu-plan { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #cbd5e1; }
+  .vp-pricing-aside { position: static !important; }
+  .hu-codewrap-n.hu-has-copy > .hu-code, .hu-codewrap-n.hu-has-copy > .vp-code, .hu-codewrap-n.hu-has-copy > .doc-code { padding-top: 0.9rem; }
+}

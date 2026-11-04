@@ -20,16 +20,16 @@ DOC_STYLE = '''
 .doc { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
 @media (min-width: 1024px) { .doc { grid-template-columns: 240px minmax(0, 1fr); gap: 48px; align-items: start; } }
 .doc-body { min-width: 0; }
-.doc-toc { position: sticky; top: 96px; }
+.doc-toc { position: sticky; top: calc(var(--hu-hdr, 77px) + 19px); }
 .doc-toc ul { list-style: none; padding: 0; margin: 0; }
 .doc-toc li { margin-bottom: 6px; }
 .doc-toc a { display: block; padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--color-ink-700, #334155); text-decoration: none; }
 .doc-toc a:hover { background: var(--color-ink-50, #f8fafc); color: var(--color-ink-900); }
 .doc-toc a.lvl-2 { padding-left: 22px; font-size: 12px; color: var(--color-ink-500, #64748b); }
 .doc-body section + section { margin-top: 56px; }
-.doc-body h2 { margin-top: 0; font-size: 28px; font-weight: 700; color: var(--color-ink-900, #0f172a); scroll-margin-top: 96px; }
+.doc-body h2 { margin-top: 0; font-size: 28px; font-weight: 700; color: var(--color-ink-900, #0f172a); scroll-margin-top: 16px; }
 .doc-body h2:first-child { margin-top: 0; }
-.doc-body h3 { margin-top: 28px; font-size: 20px; font-weight: 600; color: var(--color-ink-900); scroll-margin-top: 96px; }
+.doc-body h3 { margin-top: 28px; font-size: 20px; font-weight: 600; color: var(--color-ink-900); scroll-margin-top: 16px; }
 .doc-body p { font-size: 16px; line-height: 1.7; color: var(--color-ink-700, #334155); margin: 16px 0; }
 .doc-body ul, .doc-body ol { font-size: 16px; line-height: 1.75; color: var(--color-ink-700); padding-left: 22px; margin: 12px 0; }
 .doc-body li { margin: 6px 0; }
@@ -282,15 +282,15 @@ yarn migration:run</div>
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Geo Block
+# Geo-block
 # ─────────────────────────────────────────────────────────────────────────
 
 GEO_BLOCK_MANUAL = {
     'slug': 'geo-block',
-    'title_short': 'Geo Block',
+    'title_short': 'Geo-block',
     'sections': [
         ('overview', 'Overview', '''
-<p><strong>Geo Block</strong> gives you per-channel control over who can reach your Vendure storefront. Pick from 37 region presets, add countries manually, soft-block markets you don't ship to (so they can still browse), allow specific IPs to bypass all rules, and audit every block decision.</p>
+<p><strong>Geo-block</strong> gives you per-channel control over who can reach your Vendure storefront. Pick from 37 region presets, add countries manually, soft-block markets you don't ship to (so they can still browse), allow specific IPs to bypass all rules, and audit every block decision.</p>
 <p>Two storefront integration modes:</p>
 <ul>
 <li><strong>Site-config polling</strong> — Storefront calls <code>/geo-block/site-config</code> once on boot, caches the resolved rules, and decides client-side. Cheapest on the server.</li>
@@ -1241,16 +1241,43 @@ mutation { addPaymentToOrder(input: { method: "stripe", metadata: { paymentInten
 
 
 def label_regions(html_str, section_title):
-    """Scrollable tables and code blocks: keyboard-focusable, each region named
-    after its manual section (numbered when a section has several)."""
+    """Scrollable tables: keyboard-focusable regions, each named after its
+    manual section (numbered when a section has several). Code blocks: a
+    Copy button named after the section (numbered, "… code 2 of 3", when a
+    section has several, so each button has a name of its own); a one-line
+    command wraps at path and option boundaries, multi-line code wraps a
+    long line with a hanging indent (vp.wrap_lines()), so code never
+    scrolls sideways and needs no tab stop of its own."""
     n = {'t': 0}
     def table(m):
         n['t'] += 1
         label = html.escape(f"{section_title}: table {n['t']}")
         return f'<div class="table-wrap" role="region" aria-label="{label}" tabindex="0">{m.group(1)}</div>'
     out = re.sub(r'(<table\b[^>]*>.*?</table>)', table, html_str, flags=re.DOTALL)
-    out = out.replace('<pre>', '<pre class="doc-code" tabindex="0">')
-    return out.replace('<div class="doc-code">', '<div class="doc-code" tabindex="0">')
+    code_re = re.compile(r'<pre>(<code>)?(.*?)(</code>)?</pre>|<div class="doc-code">(.*?)</div>', re.DOTALL)
+    total = len(code_re.findall(out))
+    k = {'i': 0}
+
+    def code(m):
+        k['i'] += 1
+        name = f'{section_title} code' + (f' {k["i"]} of {total}' if total > 1 else '')
+        copy = html.escape(name)
+        is_pre = m.group(4) is None
+        body = m.group(2) if is_pre else m.group(4)
+        multi = '\n' in body.strip('\n')
+        if multi:
+            wrapped = vp.wrap_lines(body)
+            cls, focus = ('doc-code hu-wrap', '') if wrapped is not None else ('doc-code', ' tabindex="0"')
+            body = wrapped if wrapped is not None else body
+        else:
+            cls, focus, body = 'doc-code hu-oneline', '', vp.wbr(body)
+        # In its Copy wrapper from the start (as build.code_block()), so the
+        # button's room is laid out before the script runs.
+        wrap = f'<div class="hu-codewrap hu-codewrap-{"n" if multi else "1"}">'
+        if is_pre:
+            return f'{wrap}<pre class="{cls}"{focus} data-copy="{copy}">{m.group(1) or ""}{body}{m.group(3) or ""}</pre></div>'
+        return f'{wrap}<div class="{cls}"{focus} data-copy="{copy}">{body}</div></div>'
+    return code_re.sub(code, out)
 
 
 def render_manual(m):
@@ -1272,7 +1299,7 @@ def render_manual(m):
 <span class="pf-badge">For Vendure</span>
 <h1 class="mt-4 text-4xl md:text-5xl font-bold tracking-tight text-ink-900" style="margin-bottom:40px">{html.escape(title_short)} for Vendure: user manual</h1>
 <div class="doc">
-<nav class="doc-toc" aria-label="On this page">
+<nav class="doc-toc" aria-label="On this page" data-spy>
 <p class="text-xs uppercase tracking-wider text-ink-600 font-semibold mb-3">On this page</p>
 <ul>{toc_items}</ul>
 </nav>

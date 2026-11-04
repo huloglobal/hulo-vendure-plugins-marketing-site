@@ -55,27 +55,58 @@ import re as _re
 
 
 def _md_inline(text: str) -> str:
-    """Escape, then apply the tiny markdown subset the changelogs use."""
-    out = html.escape(text)
+    """Escape, then apply the tiny markdown subset the changelogs use:
+    `code`, **bold** and *emphasis*. Code spans are set aside first (so a
+    '*' inside one is left alone) and put back last (so bold or emphasis
+    may contain them)."""
+    codes = []
+
+    def keep(m):
+        codes.append('<code class="font-mono text-[0.85em] bg-ink-100 px-1 py-0.5 rounded">'
+                     + html.escape(m.group(1)) + '</code>')
+        return f'\x00{len(codes) - 1}\x00'
+    out = html.escape(_re.sub(r'`([^`]+)`', keep, text))
     out = _re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', out)
-    out = _re.sub(r'`([^`]+)`', r'<code class="font-mono text-[0.85em] bg-ink-100 px-1 py-0.5 rounded">\1</code>', out)
-    return out
+    out = _re.sub(r'(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])', r'<em>\1</em>', out)
+    return _re.sub(r'\x00(\d+)\x00', lambda m: codes[int(m.group(1))], out)
+
+
+def _is_subheading(text: str) -> bool:
+    """A paragraph that is bold from end to end (**Cart abandonment.**) heads
+    the entries under it; it is not an entry itself."""
+    t = text.strip()
+    return bool(_re.fullmatch(r'\*\*[^*]+\*\*[.:]?', t))
 
 
 def parse_changelog(pkg: str):
     """Parse a Keep-a-Changelog CHANGELOG.md into
-    [{'version', 'date', 'sections': [(heading, [item, ...]), ...]}, ...]."""
+    [{'version', 'date', 'intro': [paragraph, ...],
+      'sections': [(heading, [entry, ...]), ...]}, ...]
+    where an entry is {'text', 'sub': [text, ...], 'tail': text} (a list
+    item, its nested '  - ' items and any indented paragraph after them) or
+    {'subhead': text} (a paragraph in bold from end to end, which heads the
+    entries after it). A paragraph before a release's first ### heading is
+    its summary (intro); any other free-standing paragraph inside a section
+    is an entry of its own."""
     path = pkg_dir(pkg) / 'CHANGELOG.md'
     if not path.is_file():
         return []
     releases = []
     release = section = None
+    in_para = False
+
+    def last_entry():
+        if section and section[1] and 'text' in section[1][-1]:
+            return section[1][-1]
+        return None
+
     for line in path.read_text(encoding='utf-8').splitlines():
         m = _re.match(r'##\s+\[([^\]]+)\]\s*[—–-]+\s*(\S+)', line)
         if m:
-            release = {'version': m.group(1), 'date': m.group(2), 'sections': []}
+            release = {'version': m.group(1), 'date': m.group(2), 'intro': [], 'sections': []}
             releases.append(release)
             section = None
+            in_para = False
             continue
         if release is None:
             continue
@@ -83,17 +114,116 @@ def parse_changelog(pkg: str):
         if m:
             section = (m.group(1).strip(), [])
             release['sections'].append(section)
+            in_para = False
             continue
         if _re.match(r'^\[[^\]]+\]:\s', line):  # reference-style link defs
             continue
-        if line.startswith('- '):
+        indent = len(line) - len(line.lstrip(' '))
+        if line.startswith('- ') or line.startswith('* '):
             if section is None:
                 section = ('Changes', [])
                 release['sections'].append(section)
-            section[1].append(line[2:].strip())
-        elif line.startswith('  ') and section and section[1]:
-            section[1][-1] += ' ' + line.strip()
+            section[1].append({'text': line[2:].strip(), 'sub': [], 'tail': ''})
+            in_para = False
+        elif indent >= 2 and _re.match(r'^\s+[-*]\s', line) and last_entry():
+            last_entry()['sub'].append(line.strip()[2:].strip())
+        elif indent >= 2 and line.strip() and last_entry():
+            e = last_entry()
+            if e['sub'] and indent >= 4:
+                e['sub'][-1] += ' ' + line.strip()
+            elif e['sub']:
+                e['tail'] = (e['tail'] + ' ' + line.strip()).strip()
+            else:
+                e['text'] += ' ' + line.strip()
+        elif line.strip():
+            if section is None:
+                if in_para and release['intro']:
+                    release['intro'][-1] += ' ' + line.strip()
+                else:
+                    release['intro'].append(line.strip())
+            else:
+                prev = section[1][-1] if section[1] else None
+                if in_para and prev is not None:
+                    key = 'subhead' if 'subhead' in prev else 'text'
+                    prev[key] += ' ' + line.strip()
+                else:
+                    t = line.strip()
+                    section[1].append({'subhead': t[2:].rstrip('.:').rstrip('*').rstrip('.:')}
+                                      if _is_subheading(t) else {'text': t, 'sub': [], 'tail': ''})
+            in_para = True
+        else:
+            in_para = False
     return releases
+
+
+# ── Build inputs ──────────────────────────────────────────────────────
+import datetime as _dt
+import hashlib as _hashlib
+import os as _os
+import sys as _sys
+
+
+def _build_date() -> '_dt.date':
+    """The day the changelog "New" pills are measured from. Passed in at build
+    time with --build-date=YYYY-MM-DD or HULO_BUILD_DATE=YYYY-MM-DD; without
+    either it is the day the build runs. Never a literal in the source."""
+    raw = _os.environ.get('HULO_BUILD_DATE', '').strip()
+    for arg in _sys.argv[1:]:
+        if arg.startswith('--build-date='):
+            raw = arg.split('=', 1)[1].strip()
+    if not raw:
+        return _dt.date.today()
+    try:
+        return _dt.date.fromisoformat(raw)
+    except ValueError:
+        raise SystemExit(f'build date {raw!r} is not YYYY-MM-DD')
+
+
+BUILD_DATE = _build_date()
+NEW_DAYS = 30  # a release this many days old or newer gets the "New" pill
+
+
+def is_new(iso_date: str) -> bool:
+    try:
+        d = _dt.date.fromisoformat((iso_date or '')[:10])
+    except ValueError:
+        return False
+    return (BUILD_DATE - d).days <= NEW_DAYS
+
+
+# Shared client code (hulo-ui.js / hulo-ui.css): static files in
+# static/vendure-plugins/assets/, copied to dist by emit_assets() and linked
+# with a content fingerprint so a changed file is never served from a cache.
+ASSETS_SRC = HERE / 'static' / 'vendure-plugins' / 'assets'
+
+
+def content_hash(path: Path) -> str:
+    return _hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+
+
+def asset_url(name: str) -> str:
+    return f'/vendure-plugins/assets/{name}?v={content_hash(ASSETS_SRC / name)}'
+
+
+UI_JS = asset_url('hulo-ui.js')
+
+
+# Sources that are not served on their own: build_css.mjs appends
+# hulo-ui.css (minified) to pages.css, the one stylesheet every page links.
+NOT_SERVED = {'hulo-ui.css'}
+
+
+def emit_assets() -> None:
+    """Copy the shared client assets into dist/vendure-plugins/assets/ (every
+    builder calls this, so any one of them leaves a working page)."""
+    import shutil
+    dest = OUT / 'assets'
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in ASSETS_SRC.iterdir():
+        if f.is_file() and f.name not in NOT_SERVED:
+            shutil.copy2(f, dest / f.name)
+    for name in NOT_SERVED:
+        (dest / name).unlink(missing_ok=True)
 
 # Stylesheet for every generated page: compiled by build_css.mjs from the main
 # site's Tailwind theme (global.css) against the generated HTML, so every
@@ -136,19 +266,91 @@ def approx_from_gbp(gbp_price: str, fx: dict) -> str:
     return '≈ ' + fx['symbol'] + (f'{v:.2f}' if v < 100 else str(round(v)))
 
 
-def display_price_table(gbp_monthly: str, gbp_lifetime: str, real: dict | None = None) -> dict:
+# Annual prices are not in this file: the only source is the licence server's
+# buy-page display tables (PLUGIN_CATALOGUE[...].display, and CURRENCY_PRICES
+# for an entry without one), read at build time. If that file is missing the
+# pages simply offer monthly and lifetime, never an invented annual figure.
+LICENCE_SERVER_TS = Path(_os.environ.get(
+    'HULO_LICENCE_SERVER_TS', '/root/ee.software/src/plugins/ees/api/licence-server.controller.ts'))
+
+
+def _display_rows(block: str) -> dict:
+    rows = {}
+    for m in _re.finditer(r"\b([A-Z]{3}):\s*\{\s*monthly:\s*'([^']*)',\s*annual:\s*'([^']*)',"
+                          r"\s*lifetime:\s*'([^']*)',\s*symbol:\s*'([^']*)'", block):
+        rows[m.group(1)] = {'monthly': m.group(2), 'annual': m.group(3),
+                            'lifetime': m.group(4), 'symbol': m.group(5)}
+    return rows
+
+
+def _licence_display_tables() -> dict:
+    try:
+        src = LICENCE_SERVER_TS.read_text(encoding='utf-8')
+    except OSError:
+        print(f'  note: {LICENCE_SERVER_TS} not found, so no annual prices are shown')
+        return {}
+    tables = {}
+    cat = _re.search(r'const PLUGIN_CATALOGUE\b.*?=\s*\{(.*?)\n\};', src, _re.S)
+    default = _re.search(r'const CURRENCY_PRICES\b[^=]*=\s*\{(.*?)\n\};', src, _re.S)
+    if default:
+        tables['_default'] = _display_rows(default.group(1))
+    if cat:
+        for m in _re.finditer(r"\n {4}'(vendure-plugin-[a-z0-9-]+)':\s*\{(.*?)(?=\n {4}'[a-z0-9-]+':\s*\{|\Z)",
+                              cat.group(1), _re.S):
+            disp = _re.search(r'\bdisplay:\s*\{(.*?)\n\s*\},', m.group(2), _re.S)
+            tables[m.group(1)] = _display_rows(disp.group(1)) if disp else None
+    return tables
+
+
+_LICENCE_TABLES = None
+
+
+def licence_table(slug: str) -> dict:
+    """The buy page's per-currency price table for one plugin ({} if unknown)."""
+    global _LICENCE_TABLES
+    if _LICENCE_TABLES is None:
+        _LICENCE_TABLES = _licence_display_tables()
+    key = 'vendure-plugin-' + slug
+    if key not in _LICENCE_TABLES:
+        return {}
+    return _LICENCE_TABLES[key] or _LICENCE_TABLES.get('_default') or {}
+
+
+def annual_prices(slug: str, pricing: dict) -> dict:
+    """{currency: annual price} from the licence server, for the currencies
+    whose monthly and lifetime amounts agree with this site's pricing (a
+    mismatch means one side is stale: it is reported and annual is left out)."""
+    out = {}
+    for cc, row in licence_table(slug).items():
+        mine = pricing.get(cc)
+        if not mine or not row.get('annual'):
+            continue
+        if (mine['monthly'], mine['lifetime']) != (row['monthly'], row['lifetime']):
+            print(f"  WARNING {slug} {cc}: licence server shows {row['monthly']}/{row['lifetime']}, "
+                  f"build.py {mine['monthly']}/{mine['lifetime']}; annual price not shown")
+            continue
+        out[cc] = row['annual']
+    return out
+
+
+def display_price_table(gbp_monthly: str, gbp_lifetime: str, real: dict | None = None,
+                        annual: dict | None = None) -> dict:
     """Real prices for purchasable currencies (from `real`, else CURRENCIES
     when amounts match the default anchors); FX estimates only for anything
-    left over."""
-    table = {'GBP': {'monthly': gbp_monthly, 'lifetime': gbp_lifetime, 'symbol': '£', 'approx': False}}
+    left over. `annual` ({currency: price}, from the licence server) adds the
+    annual plan where it is known."""
+    annual = annual or {}
+    table = {'GBP': {'monthly': gbp_monthly, 'annual': annual.get('GBP', ''), 'lifetime': gbp_lifetime,
+                     'symbol': '£', 'approx': False}}
     source = real or (CURRENCIES if gbp_monthly == CURRENCIES['GBP']['monthly'] else None)
     for cc in [c for c in APPROX_FX if c != 'GBP']:
         if cc in PURCHASABLE_CURRENCIES and source and cc in source:
-            table[cc] = {'monthly': source[cc]['monthly'], 'lifetime': source[cc]['lifetime'],
-                         'symbol': source[cc]['symbol'], 'approx': False}
+            table[cc] = {'monthly': source[cc]['monthly'], 'annual': annual.get(cc, ''),
+                         'lifetime': source[cc]['lifetime'], 'symbol': source[cc]['symbol'], 'approx': False}
         else:
             fx = APPROX_FX[cc]
             table[cc] = {'monthly': approx_from_gbp(gbp_monthly, fx),
+                         'annual': approx_from_gbp(annual['GBP'], fx) if annual.get('GBP') else '',
                          'lifetime': approx_from_gbp(gbp_lifetime, fx),
                          'symbol': fx['symbol'], 'approx': True}
     return table
@@ -185,17 +387,131 @@ ROUTE_PREFIX = {
     'visitor-analytics': '/ees',
     'fraud-prevention': '/fraud-prevention',
     'review-requests': '/review-requests',
+    'payments': '/hulo-payments',
 }
 
 # What the free tier includes vs what needs a key (from each package README).
 TIERS = {'payments': (['Stripe: sessions, wallets, 3-D Secure, automatic or manual capture, refunds, disputes, signed webhooks', 'Bank transfer and pay-later / invoice methods', 'The hosted checkout page', 'The payments ledger, dashboard and webhook log', 'The hulo-payment-rules eligibility checker'], ['Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com and Coinbase Commerce', 'Subscriptions and the renewal scheduler', 'Saved cards and pay-by-link', 'Provider routing, fallback on decline and surcharges']), 'business-credit': (['Accounts and credit limits with the audit trail', 'Pay-on-Account handler and eligibility checker', 'Invoices, manual settlements and allocation, the ledger', 'Statements (view), review dates, the admin dashboard'], ['Stripe card pay links and top-ups', 'Reminders, dunning emails, late fees, auto-suspend', 'Statement emails and CSV exports', 'Storefront applications, invitations, auto-approval', 'Company members, payment plans, reward points']), 'checkout-guard': (['Session-bound order lookup and trusted client IP', 'Rate limits and funnel events', 'Bank-transfer handler and eligibility checker', 'The dashboard'], ['Stripe manual-capture hold handling', 'Bank-transfer auto-expiry and reminders', 'Failed-payment recording and nightly reconciliation', 'Amount-drift guard and ops alerts']), 'fraud-prevention': (['Monitor mode: every order scored and logged', 'Manual allow / block lists', 'Simulate a rule change before enforcing it'], ['Enforce mode and review-queue holds', 'Threat-feed sync (FireHOL, Spamhaus, Tor, disposable email)', 'Email alerts']), 'review-requests': (['Configure per channel, preview the email', 'Test-send to yourself'], ['Scheduled sending after every order', 'Exclusions, cooldown and one-click unsubscribe in production']), 'quotations': (['Quote builder with live catalogue pricing', 'Previews and drafts', 'Storefront quote requests landing in the inbox'], ['Sending the signed accept / decline link', 'Auto-chasers, expiry reminders and auto-expiry', 'Accepted quote to draft order']), 'geo-block': (['Configure regions, rules and allowlists', '"What-if" simulator and audit log in the admin'], ['Live enforcement: the storefront endpoint reports the real decision (free tier always answers enabled: false)']), 'visitor-analytics': (['Tracking and data collection with the storefront helpers', 'Privacy controls (DNT, IP anonymisation, consent gate)'], ['Dashboards, funnels, exit pages and search analytics (403 on the free tier)', 'Product recommendations and abandoned-cart recovery links'])}
-# Plugins currently shown in Vendure's own plugin directory.
-VENDURE_DIRECTORY_LISTED = ['email-tracking', 'fraud-prevention', 'geo-block', 'quotations', 'review-requests', 'visitor-analytics', 'payments', 'checkout-guard']  # payments + checkout-guard confirmed listed 2026-10-29
+# Plugins currently shown in Vendure's own plugin directory
+# (docs.vendure.io/plugins, checked 2026-11-04: seven HULO entries; Checkout
+# Guard is not among them). Re-check the directory before each deploy.
+VENDURE_DIRECTORY_LISTED = ['email-tracking', 'fraud-prevention', 'geo-block', 'quotations', 'review-requests', 'visitor-analytics', 'payments']
 # Submitted to the directory (2026-09-23) but not yet listed; move to LISTED when Vendure publishes them.
-VENDURE_DIRECTORY_SUBMITTED = ['business-credit']
-# Plugins that register TypeORM entities and therefore need a migration; the
-# others create their tables on boot.
+VENDURE_DIRECTORY_SUBMITTED = ['business-credit', 'checkout-guard']
+# Plugins that need a migration: email-tracking, geo-block and
+# visitor-analytics register TypeORM entities; payments creates its tables on
+# boot and needs one only for the three subscription custom fields it adds to
+# ProductVariant (its README). The others create their tables on boot.
 NEEDS_MIGRATION = ['email-tracking', 'geo-block', 'visitor-analytics', 'payments']
+# Why the migration is needed and its name, where that differs from the
+# entity plugins' (their text: install step and install.sh).
+MIGRATION_WHY = {
+    'payments': ('Tables are created on boot; the only migration is Vendure\'s own, for the three subscription '
+                 'custom fields the plugin adds to <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">ProductVariant</code>. '
+                 'Generate and run it like any other:',
+                 'this plugin adds three custom fields to ProductVariant', 'AddHuloPaymentsCustomFields'),
+}
+
+
+def migration_text(p: dict) -> tuple[str, str, str]:
+    """(install-step HTML, install.sh reason, migration name) for a plugin in NEEDS_MIGRATION."""
+    return MIGRATION_WHY.get(p['slug'], (
+        'The plugin registers its own entities. Generate and run the migration like any other:',
+        'this plugin registers entities', f"Add{p['class']}Tables"))
+
+
+# Plugins with the † in the comparison table: those whose third-party calls
+# go beyond the alerts and mail you configure yourself.
+NOTED_THIRD_PARTY = ['payments', 'checkout-guard', 'business-credit', 'fraud-prevention', 'review-requests']
+
+# Third-party services each plugin calls from the store's own server (from
+# its source: the hosts it calls), for the product FAQ and the comparison
+# table's note. Plugins not listed call none. Owner sign-off: privacy copy.
+THIRD_PARTY = {
+    'payments': 'Payments are sent from your server to the providers you connect (Stripe, Adyen, PayPal and the others), as with any payment plugin.',
+    'checkout-guard': 'Holds and the nightly reconciliation call Stripe with your own key, and alerts go only to the channels you set up.',
+    'business-credit': 'Card pay links and top-ups are created in your own Stripe account.',
+    'fraud-prevention': ('To score orders it looks up IP addresses at ip-api.com, downloads public blocklist feeds (FireHOL, Spamhaus, Tor, '
+                         'disposable-email domains) and reads the card checks from your Stripe account; the lookups and feeds are cached, '
+                         'and can be switched off.'),
+    'review-requests': 'If you show your live rating, it is read from Trustpilot or Google; invitations go out through your own SMTP server.',
+    'visitor-analytics': 'Abandoned-cart alerts go to Slack only if you set a Slack webhook.',
+}
+
+def package_json(pkg: str) -> dict:
+    try:
+        return json.loads((pkg_dir(pkg) / 'package.json').read_text())
+    except Exception:
+        return {}
+
+
+def vendure_peer_range(pkg: str) -> str:
+    """The @vendure/core range a plugin declares (peerDependencies), e.g.
+    '>=3.5.0 <4.0.0'; '' when the package is not on disk."""
+    return (package_json(pkg).get('peerDependencies') or {}).get('@vendure/core', '')
+
+
+def range_text(peer: str) -> str:
+    """'>=3.5.0 <4.0.0' → '>=3.5 <4' (the form the package READMEs use)."""
+    def short(v):
+        parts = v.split('.')
+        while len(parts) > 1 and parts[-1] == '0':
+            parts.pop()
+        return '.'.join(parts)
+    m = _re.fullmatch(r'\s*>=\s*([\d.]+)\s+<\s*([\d.]+)\s*', peer or '')
+    return f'>={short(m.group(1))} <{short(m.group(2))}' if m else (peer or '')
+
+
+def range_min(peer: str) -> str:
+    m = _re.match(r'\s*>=\s*(\d+\.\d+)', peer or '')
+    return m.group(1) if m else ''
+
+
+def suite_min() -> str:
+    """The lowest Vendure every plugin supports (the highest of their
+    peerDependencies minimums), e.g. '3.5'."""
+    mins = [range_min(vendure_peer_range(p['pkg'])) for p in PLUGINS]
+    mins = [m for m in mins if m]
+    return max(mins, key=lambda v: tuple(int(x) for x in v.split('.'))) if mins else '3.5'
+
+
+def verified_vendure() -> str | None:
+    """The Vendure the monorepo builds and runs every plugin's tests against
+    before a release (release-plugin.sh): the installed @vendure/core."""
+    try:
+        return json.loads((HERE.parent / 'node_modules' / '@vendure' / 'core' / 'package.json').read_text())['version']
+    except Exception:
+        print('  note: monorepo @vendure/core not installed, so no "verified on" version is shown')
+        return None
+
+
+VERIFIED_VENDURE = verified_vendure()
+
+_REPO_CACHE: dict = {}
+
+
+def public_repo(pkg: str) -> str | None:
+    """The plugin's GitHub repository (package.json "repository") when it is
+    public, checked at build time; None when it is private, missing or the
+    check fails, so the pages never point at a 404."""
+    if pkg in _REPO_CACHE:
+        return _REPO_CACHE[pkg]
+    repo = package_json(pkg).get('repository')
+    url = repo.get('url') if isinstance(repo, dict) else repo
+    m = _re.search(r'github\.com[/:]([\w.-]+/[\w.-]+?)(?:\.git)?$', url or '')
+    out = None
+    if m:
+        web = 'https://github.com/' + m.group(1)
+        try:
+            import urllib.request
+            req = urllib.request.Request(web, method='HEAD', headers={'User-Agent': 'huloglobal-site-build'})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                out = web if r.status == 200 else None
+        except Exception:
+            out = None
+    _REPO_CACHE[pkg] = out
+    return out
+
 
 _DOWNLOADS_CACHE: dict = {}
 def npm_downloads_last_month(pkg: str):
@@ -229,17 +545,61 @@ def npm_downloads_this_year(pkg: str):
     _YTD_CACHE[pkg] = n
     return n
 
+# The shared admin rows every plugin page lists. Each row names the route
+# suffixes it may live under, in order of preference: some plugins answer the
+# licence status at `meta` rather than `licence/status`.
+COMMON_ENDPOINT_ROWS = [
+    ('GET',  ('licence/status', 'meta'), 'Admin: licence + evaluation + update status'),
+    ('POST', ('licence/activate',),      'Admin: activate a licence key from the admin UI'),
+    ('POST', ('update/run',),            'Admin: one-click in-app update + graceful restart'),
+    ('GET',  ('digest/settings',),       'Admin: weekly report recipient, last/next send'),
+    ('POST', ('digest/send-test',),      'Admin: email this week\'s report to you now'),
+    ('GET',  ('setup',),                 'Admin: set-up checklist (what is still to do)'),
+    ('GET',  ('widget',),                'Admin: headline figures for the dashboard widget'),
+]
+
+_ROUTE_DECOR = _re.compile(r"@(Controller|Get|Post|Put|Patch|Delete)\(\s*(?:'([^']*)'|\"([^\"]*)\")?\s*\)")
+
+
+def controller_routes(slug: str) -> set[tuple[str, str]] | None:
+    """(METHOD, path) for every REST route the package's controllers declare,
+    read from its TypeScript source; None when the source isn't here (a CI
+    checkout of this repository alone)."""
+    src = PACKAGES_DIR / f'plugin-{slug}' / 'src'
+    if not src.is_dir():
+        return None
+    out: set[tuple[str, str]] = set()
+    for f in sorted(src.rglob('*.ts')):
+        if f.name.endswith(('.test.ts', '.spec.ts', '.d.ts')):
+            continue
+        prefix = None
+        for m in _ROUTE_DECOR.finditer(f.read_text(encoding='utf-8')):
+            kind = m.group(1)
+            path = (m.group(2) if m.group(2) is not None else m.group(3)) or ''
+            if kind == 'Controller':
+                prefix = '/' + path.strip('/')
+            elif prefix is not None:
+                out.add((kind.upper(), (prefix + '/' + path.strip('/')).rstrip('/')))
+    return out
+
+
 def common_endpoints(slug: str):
+    """The shared rows, each checked against the routes the package really
+    serves: a row whose route doesn't exist is left out with a WARNING."""
     pre = ROUTE_PREFIX.get(slug, '/' + slug)
-    return [
-        ('GET',  f'{pre}/licence/status',   'Admin: licence + evaluation + update status'),
-        ('POST', f'{pre}/licence/activate', 'Admin: activate a licence key from the admin UI'),
-        ('POST', f'{pre}/update/run',       'Admin: one-click in-app update + graceful restart'),
-        ('GET',  f'{pre}/digest/settings',  'Admin: weekly report recipient, last/next send'),
-        ('POST', f'{pre}/digest/send-test', 'Admin: email this week\'s report to you now'),
-        ('GET',  f'{pre}/setup',            'Admin: set-up checklist (what is still to do)'),
-        ('GET',  f'{pre}/widget',           'Admin: headline figures for the dashboard widget'),
-    ]
+    routes = controller_routes(slug)
+    rows = []
+    for method, suffixes, desc in COMMON_ENDPOINT_ROWS:
+        if routes is None:
+            rows.append((method, f'{pre}/{suffixes[0]}', desc))
+            continue
+        for s in suffixes:
+            if (method, f'{pre}/{s}') in routes:
+                rows.append((method, f'{pre}/{s}', desc))
+                break
+        else:
+            print(f'WARNING: {slug}: the package has no {method} {pre}/{suffixes[0]} route; row left out', file=_sys.stderr)
+    return rows
 
 
 PLUGINS = [
@@ -381,7 +741,7 @@ PLUGINS = [
         },
         'class': 'GeoBlockPlugin',
         'version': '0.6.0',
-        'title': 'Geo Block',
+        'title': 'Geo-block',
         'tagline': '37 region presets, soft-block mode, IP allowlist, audit log, "what-if" simulator.',
         'description': (
             'Per-channel geo-restrictions you can actually understand. Pick from '
@@ -640,7 +1000,7 @@ PLUGINS = [
         'description': (
             'Vendure ships a Stripe plugin, a Mollie plugin and a Braintree plugin, each '
             'with its own shape, its own gaps and no view across them. Payments gives '
-            'you four providers behind one contract: the storefront asks which to '
+            'you eleven payment systems behind one contract: the storefront asks which to '
             'offer and gets a session; the provider\'s client renders cards, Apple Pay, '
             'Google Pay, iDEAL, Klarna and the rest; the plugin verifies the result '
             'with the provider before Vendure records the payment. Manual capture, '
@@ -824,6 +1184,15 @@ HEADER = '''<!DOCTYPE html>
 <meta name="twitter:description" content="{description}">
 <meta name="twitter:image" content="https://huloglobal.com/og-image.png">
 <meta name="robots" content="index, follow">
+<script>(function (r) {{
+  /* hu-scripts: scripts run (the currency picker works). hu-js: hulo-ui.js
+     is expected; removed again if it fails to load (onerror below) or has
+     not finished (html.hu-ui) a few seconds after load, so the page falls
+     back to its scripts-off layout instead of keeping room for controls
+     that never arrive. */
+  r.classList.add('hu-js', 'hu-scripts');
+  addEventListener('load', function () {{ setTimeout(function () {{ if (!r.classList.contains('hu-ui')) r.classList.remove('hu-js'); }}, 4000); }});
+}})(document.documentElement);</script>
 <link rel="stylesheet" href="''' + ASTRO_CSS + '''">
 <style>
 /* Global focus indicator — accessibility */
@@ -856,7 +1225,12 @@ HEADER = '''<!DOCTYPE html>
 .vp-grid-2 > * {{ min-width: 0; }}
 .vp-feat p, .vp-feat h3 {{ overflow-wrap: anywhere; }}
 @media (min-width: 1024px) {{ .vp-grid-2 {{ grid-template-columns: minmax(0, 1fr) 380px; gap: 64px; align-items: start; }} }}
-.vp-pricing-aside {{ position: sticky; top: 104px; }}
+/* The price card follows the reader beside the features once the script
+   shows one plan at a time; without it (all three plans listed) only on a
+   screen tall enough to hold the whole card. */
+.vp-pricing-aside {{ position: static; top: calc(var(--hu-header-h, 77px) + var(--hu-secnav-h, 0px) + 16px); }}
+@media (min-width: 1024px) {{ .vp-pricing-aside:has(.hu-period-on) {{ position: sticky; }} }}
+@media (min-width: 1024px) and (min-height: 940px) {{ .vp-pricing-aside {{ position: sticky; }} }}
 @media (max-width: 1023px) {{ .vp-pricing-aside {{ position: static; top: auto; margin-top: 8px; }} }}
 .vp-price-card {{ border: 1px solid var(--color-ink-100, #e2e8f0); border-radius: 18px; padding: 28px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.05), 0 8px 24px rgba(15,23,42,.04); }}
 .vp-price-card + .vp-price-card {{ margin-top: 18px; }}
@@ -865,14 +1239,6 @@ HEADER = '''<!DOCTYPE html>
     .vp-price-card {{ padding: 22px; }}
     .vp-price-card.featured {{ padding: 21px; }}
     .vp-price-num {{ font-size: 36px !important; }}
-    /* Pricing cards side-by-side on small screens so both are above the fold */
-    .vp-pricing-aside {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }}
-    .vp-pricing-aside > .vp-price-card + .vp-price-card {{ margin-top: 0; }}
-    .vp-pricing-aside > p {{ grid-column: 1 / -1; }}
-}}
-@media (max-width: 480px) {{
-    .vp-pricing-aside {{ grid-template-columns: 1fr; }}
-    .vp-pricing-aside > .vp-price-card + .vp-price-card {{ margin-top: 16px; }}
 }}
 .vp-price-num {{ font-size: 40px; font-weight: 800; color: var(--color-ink-900, #0f172a); line-height: 1; letter-spacing: -0.025em; }}
 .vp-price-num small {{ font-size: 15px; font-weight: 500; color: var(--color-ink-500, #64748b); margin-left: 6px; }}
@@ -898,8 +1264,8 @@ HEADER = '''<!DOCTYPE html>
 .vp-step h3::before {{ content: counter(step); display: inline-block; min-width: 32px; height: 32px; padding: 0 8px; margin-right: 14px; background: var(--color-ink-900); color: #fff; border-radius: 999px; font-size: 15px; font-weight: 700; text-align: center; line-height: 32px; vertical-align: middle; }}
 .vp-step h3 {{ font-size: 22px !important; line-height: 1.4; }}
 .vp-step > p {{ margin: 12px 0 14px 46px; }}
-@media (max-width: 639px) {{ .vp-step > p, .vp-code {{ margin-left: 0 !important; }} .vp-code {{ padding: 18px 16px; }} }}
 .vp-code {{ white-space: pre; background: #0f172a; color: #f1f5f9; padding: 22px 24px; border-radius: 12px; font-size: 13.5px; line-height: 1.75; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; margin-left: 46px; }}
+@media (max-width: 639px) {{ .vp-step > p, .vp-code {{ margin-left: 0 !important; }} .vp-code {{ padding: 18px 16px; }} }}
 .vp-code .vp-comment {{ color: #a3b1c6; }}
 .vp-code .vp-key {{ color: #fbbf24; }}
 .vp-code .vp-str {{ color: #86efac; }}
@@ -918,12 +1284,14 @@ HEADER = '''<!DOCTYPE html>
 .vp-method.DELETE {{ background: #fee2e2; color: #7f1d1d; }}
 .vp-endpoint code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--color-ink-900); font-size: 13px; }}
 .vp-endpoint .vp-desc {{ color: var(--color-ink-600); font-size: 13px; }}
-.vp-cards-grid {{ display: grid; grid-template-columns: 1fr; gap: 24px; }}
-@media (min-width: 768px) {{ .vp-cards-grid {{ grid-template-columns: repeat(3, 1fr); }} }}
-.vp-card {{ display: flex; flex-direction: column; border: 1px solid var(--color-ink-100, #e2e8f0); border-radius: 18px; padding: 32px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.05); transition: transform .15s, box-shadow .15s; }}
-.vp-card:hover {{ transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15,23,42,.08); }}
+.vp-cards-grid {{ display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }}
+@media (min-width: 768px) {{ .vp-cards-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} }}
+@media (min-width: 1024px) {{ .vp-cards-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }} }}
+/* Hover lift and transitions: hulo-ui.css (hover-capable devices only). */
+.vp-card {{ display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--color-ink-100, #e2e8f0); border-radius: 18px; padding: 32px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.05); }}
+.vp-card-top {{ display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }}
 .vp-card h3 {{ font-size: 24px; font-weight: 700; color: var(--color-ink-900); line-height: 1.2; margin: 0; }}
-.vp-card .vp-card-tagline {{ font-size: 15px; color: var(--color-ink-600); line-height: 1.65; margin: 14px 0 0; }}
+.vp-card .vp-card-tagline {{ font-size: 15px; color: var(--color-ink-600); line-height: 1.65; margin: 14px 0 0; overflow-wrap: anywhere; }}
 .vp-card ul {{ list-style: none; padding: 0; margin: 24px 0 0; }}
 .vp-card li {{ display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; font-size: 14px; color: var(--color-ink-700); line-height: 1.5; }}
 .vp-card .vp-card-actions {{ margin-top: auto; padding-top: 24px; border-top: 1px solid var(--color-ink-100); display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }}
@@ -933,6 +1301,8 @@ HEADER = '''<!DOCTYPE html>
 /* Currency picker — proper tap target + visible focus */
 .sr-only {{ position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }}
 .ccy-picker-wrap {{ display: inline-flex; align-items: center; gap: 8px; }}
+/* The picker only works with scripts; without them prices show in GBP. */
+html:not(.hu-scripts) .ccy-picker-wrap {{ display: none; }}
 .ccy-label {{ font-size: 13px; font-weight: 500; color: var(--color-ink-600, #475569); }}
 .ccy-select {{
     appearance: none; -webkit-appearance: none;
@@ -988,8 +1358,14 @@ main code {{ overflow-wrap: anywhere; }}
 .vp-compat-ver {{ font-size: 13px; color: var(--color-ink-900, #0f172a); }}
 .vp-compat-ok {{ display: inline-block; padding: 3px 10px; border-radius: 999px; background: #ecfdf5; color: #047857; font-size: 12px; font-weight: 600; white-space: nowrap; }}
 
-/* Catalog comparison: table on desktop, stacked cards on mobile */
+/* Catalog comparison: table on desktop, stacked cards on mobile. The
+   feature column stays put while the plugin columns scroll past it; a shade
+   marks the edge that hides columns (hulo-ui.js sets .is-scrolled /
+   .is-overflowing / .is-end on the scroller). */
 .vp-compare-table {{ display: block; }}
+.vp-compare-table th:first-child {{ position: sticky; left: 0; z-index: 1; background: #fff; }}
+.vp-compare-table.is-scrolled th:first-child {{ box-shadow: 10px 0 12px -12px rgba(15,23,42,.45); }}
+.vp-compare-table.is-overflowing:not(.is-end) {{ box-shadow: inset -22px 0 18px -18px rgba(15,23,42,.35); }}
 .vp-compare-cards {{ display: none; }}
 @media (max-width: 767px) {{
     .vp-compare-table {{ display: none; }}
@@ -1003,7 +1379,7 @@ main code {{ overflow-wrap: anywhere; }}
     }}
     .vp-cmp-row {{
         display: grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: minmax(7.5rem, 1fr) minmax(0, 1.25fr);
         gap: 12px;
         align-items: start;
         padding: 10px 0;
@@ -1013,8 +1389,7 @@ main code {{ overflow-wrap: anywhere; }}
     .vp-cmp-key {{
         font-size: 13px;
         color: var(--color-ink-600, #475569);
-        word-wrap: break-word;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
         min-width: 0;
     }}
     .vp-cmp-val {{
@@ -1022,9 +1397,8 @@ main code {{ overflow-wrap: anywhere; }}
         font-weight: 600;
         color: var(--color-ink-900);
         text-align: right;
-        word-wrap: break-word;
-        overflow-wrap: anywhere;
-        max-width: 55%;
+        overflow-wrap: break-word;
+        min-width: 0;
     }}
 }}
 
@@ -1033,6 +1407,7 @@ main code {{ overflow-wrap: anywhere; }}
 .table-wrap::-webkit-scrollbar {{ height: 8px; }}
 .table-wrap::-webkit-scrollbar-thumb {{ background: var(--color-ink-300, #cbd5e1); border-radius: 4px; }}
 </style>
+<script src="''' + UI_JS + '''" defer onerror="document.documentElement.classList.remove('hu-js')"></script>
 </head>
 <body>
 <a href="#main" class="skip-link">Skip to content</a>
@@ -1092,12 +1467,21 @@ CURRENCY_JS = '''
     var p = PRICES[ccy] || PRICES.GBP;
     document.querySelectorAll('[data-monthly-price]').forEach(function(el) { el.textContent = p.monthly; });
     document.querySelectorAll('[data-lifetime-price]').forEach(function(el) { el.textContent = p.lifetime; });
+    document.querySelectorAll('[data-annual-price]').forEach(function(el) { if (p.annual) el.textContent = p.annual; });
+    document.querySelectorAll('[data-ccy-prices]').forEach(function(el) {
+      try { var m = JSON.parse(el.getAttribute('data-ccy-prices')); el.textContent = m[ccy] || m.GBP; } catch (e) {}
+    });
     var chargeCcy = p.approx ? 'GBP' : ccy;
     document.querySelectorAll('[data-currency-input]').forEach(function(el) { el.value = chargeCcy; });
+    // The checkout (another site) cannot read this site's saved currency:
+    // every buy link carries it (?currency=), next to its ?plan=.
+    document.querySelectorAll('a[href^="https://elite.charity/licence/buy/"]').forEach(function(a) {
+      try { var u = new URL(a.href); u.searchParams.set('currency', chargeCcy); a.href = u.toString(); } catch (e) {}
+    });
     document.querySelectorAll('[data-approx-note]').forEach(function(el) { el.style.display = p.approx ? '' : 'none'; });
     try { localStorage.setItem('hulo-currency', ccy); } catch (e) {}
     if (live && initialised) {
-      live.textContent = 'Currency changed to ' + ccy + '. Monthly ' + p.monthly + ', lifetime ' + p.lifetime + '.';
+      live.textContent = 'Currency changed to ' + ccy + '. Monthly ' + p.monthly + (p.annual ? ', annual ' + p.annual : '') + ', lifetime ' + p.lifetime + '.';
     }
     initialised = true;
   }
@@ -1193,7 +1577,7 @@ FOOTER = CURRENCY_JS + VERSION_REFRESH_JS + '''
 <ul class="space-y-1 text-sm text-ink-700">
 <li><a href="/vendure-plugins/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">All Vendure plugins</a></li>
 <li><a href="/vendure-plugins/email-tracking/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Email Tracking</a></li>
-<li><a href="/vendure-plugins/geo-block/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Geo Block</a></li>
+<li><a href="/vendure-plugins/geo-block/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Geo-block</a></li>
 <li><a href="/vendure-plugins/visitor-analytics/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Visitor Analytics</a></li>
 <li><a href="/vendure-plugins/fraud-prevention/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Fraud Prevention</a></li>
 <li><a href="/vendure-plugins/roadmap/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Roadmap &amp; requests</a></li>
@@ -1215,8 +1599,13 @@ FOOTER = CURRENCY_JS + VERSION_REFRESH_JS + '''
 '''
 
 
-def header(title, canonical, description):
-    return HEADER.format(title=html.escape(title), canonical=canonical, description=html.escape(description))
+def header(title, canonical, description, secnav: bool = False):
+    """The shared <head> and site header. secnav=True for a page with the
+    section bar (product pages): html.hu-has-secnav, which hulo-ui.css uses
+    to let the bar, not the header, stick on phones, with or without
+    scripts."""
+    out = HEADER.format(title=html.escape(title), canonical=canonical, description=html.escape(description))
+    return out.replace('<html lang="en">', '<html lang="en" class="hu-has-secnav">', 1) if secnav else out
 
 
 # ── Platform identity ────────────────────────────────────────────────
@@ -1241,8 +1630,8 @@ def platform_band(platform: str, slug: str | None = None, title: str | None = No
     """Band under the site header: which edition this is + the switch."""
     me, other = ('wp', 'vd') if platform == 'wp' else ('vd', 'wp')
     name, oname = PLATFORMS[me]['name'], PLATFORMS[other]['name']
-    what = ('for any WordPress site, WooCommerce optional' if me == 'wp'
-            else 'for Vendure 3 shops, installed with npm')
+    what = ('for any WordPress site' if me == 'wp'
+            else f'for Vendure {suite_min()}+ shops, installed with npm')
     label = f'<strong>{name} edition</strong>' if slug else f'<strong>{name} plugins</strong>'
     if slug and other_exists:
         href = f"{PLATFORMS[other]['base']}/{slug}/"
@@ -1273,6 +1662,377 @@ def crumbs(items) -> str:
 
 
 TICK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+
+
+# ── Interactive pieces shared by the Vendure and WordPress pages ──────
+# All of it is plain HTML that reads without JavaScript; hulo-ui.js only
+# enhances it (tabs, copy buttons, filters, the period switch, scrollspy).
+
+# Index-page categories (a plugin may sit in several).
+CATEGORIES = [
+    ('payments-checkout', 'Payments & checkout', ['payments', 'checkout-guard', 'fraud-prevention', 'business-credit']),
+    ('sales-customers', 'Sales & customers', ['quotations', 'review-requests']),
+    ('marketing-analytics', 'Marketing & analytics', ['email-tracking', 'visitor-analytics']),
+    ('security-access', 'Security & access', ['geo-block', 'checkout-guard', 'fraud-prevention']),
+]
+
+
+def categories_of(slug: str) -> list[str]:
+    return [cid for cid, _, slugs in CATEGORIES if slug in slugs]
+
+
+def card_keywords(slug: str) -> str:
+    """Extra words the catalogue search matches on a card: the slug's words
+    and the names of the card's categories."""
+    return ' '.join([slug.replace('-', ' ')] + [label for cid, label, slugs in CATEGORIES if slug in slugs])
+
+
+SEARCH_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+              'aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.5" y2="16.5"/></svg>')
+
+
+def catalog_controls(slugs: list[str], noun: str) -> str:
+    """Category chips, then the search box with the result count beside it.
+    Without scripts this is not shown (every card is listed); with them it is
+    laid out from the first paint, invisible until hulo-ui.js wires it up, so
+    the cards never jump down when the script arrives."""
+    chips = [('all', 'All', len(slugs))] + [
+        (cid, label, sum(1 for s in slugs if s in members)) for cid, label, members in CATEGORIES]
+    chip_html = ''.join(
+        f'<label class="hu-chip"><input type="radio" name="hu-cat" value="{cid}"{" checked" if cid == "all" else ""}>'
+        f'<span data-name="{html.escape(label)}">{html.escape(label)} <span class="hu-chip-n" aria-hidden="true">{n}</span>'
+        f'<span class="sr-only">, {n} plugins</span></span></label>'
+        for cid, label, n in chips if n)
+    return f'''<div class="hu-cat hu-needs-js" data-catalog-controls>
+<fieldset class="hu-chips"><legend>Show {noun} for</legend>{chip_html}</fieldset>
+<div class="hu-cat-row">
+<div class="hu-search">{SEARCH_SVG}<label for="hu-cat-q" class="sr-only">Search the {noun}</label><input id="hu-cat-q" type="search" placeholder="Search plugins" autocomplete="off" spellcheck="false"></div>
+<p class="hu-cat-count" role="status" data-catalog-count>Showing all {len(slugs)} plugins.</p>
+</div>
+</div>'''
+
+
+def catalog_empty(noun: str) -> str:
+    return (f'<p class="hu-cat-empty" data-catalog-empty hidden>No {noun} match that search.<br>'
+            f'<button type="button" class="btn btn-secondary" data-catalog-reset>Show all {noun}</button></p>')
+
+
+# "Expand all" above a FAQ list: laid out (invisible) from the first paint when
+# scripts run, wired up by hulo-ui.js; not shown without scripts.
+EXPAND_BAR = '<div class="hu-expand-bar hu-needs-js"><button type="button" class="hu-expand">Expand all</button></div>'
+
+
+def section_nav(items: list[tuple[str, str]], platform: str) -> str:
+    """Sticky "On this page" bar under the hero: [(id, label)]."""
+    lis = ''.join(f'<li><a href="#{sid}">{html.escape(label)}</a></li>' for sid, label in items)
+    return (f'<nav class="hu-secnav pf-{platform}" aria-label="On this page" data-spy>'
+            f'<div class="container-page"><ul class="hu-secnav-list">{lis}</ul></div></nav>\n')
+
+
+def wbr(code_html: str) -> str:
+    """Break opportunities for a one-line command that wraps on a phone: after
+    a '/' (not inside '//') and after a '-' inside a word, so a line breaks at
+    a path or package boundary (@huloglobal/ | vendure-plugin-payments), never
+    mid-word. Only text is touched, never tags or entities."""
+    def text(seg: str) -> str:
+        seg = _re.sub(r'/(?![/<])', '/<wbr>', seg)
+        return _re.sub(r'(?<=\w)-(?=\w)', '-<wbr>', seg)
+    return ''.join(part if part.startswith('<') else text(part)
+                   for part in _re.split(r'(<[^>]+>)', code_html))
+
+
+def wrap_lines(code_html: str) -> str | None:
+    """Multi-line code that wraps a line that does not fit instead of
+    scrolling sideways: each line becomes a full-width inline block
+    (span.hu-ln) whose continuation is indented two characters past the
+    line's own indentation (.hu-i0 … .hu-i12 in hulo-ui.css), with wbr()
+    break opportunities. The line feeds stay between the lines, as text, so
+    the Copy button, a selection and innerText all give the code exactly as
+    written (block-level lines would double every line break there). None
+    when a tag spans two lines (the caller keeps the code as it is)."""
+    lines = code_html.split('\n')
+    for line in lines:
+        opened = len(_re.findall(r'<(?!/)(?!wbr\b)(?!br\b)[a-zA-Z][^>]*>', line))
+        if opened != len(_re.findall(r'</[a-zA-Z]+\s*>', line)):
+            return None
+    out = []
+    for line in lines:
+        text = html.unescape(_re.sub(r'<[^>]+>', '', line))
+        lead = len(text) - len(text.lstrip(' '))
+        level = min(lead // 2 * 2, 12)
+        out.append(f'<span class="hu-ln hu-i{level}">{wbr(line)}</span>')
+    return '\n'.join(out)
+
+
+def code_block(code_html: str, label: str, cls: str = 'hu-code', wrap_cls: str = '', tag: str = 'pre') -> str:
+    """A code sample that the script gives a Copy button (label: what it copies,
+    for the button's accessible name). A one-line command may wrap on a
+    phone, at path and package boundaries (wbr()); multi-line code keeps its
+    lines and wraps one that does not fit with a hanging indent
+    (wrap_lines()), with the button in a strip above the code. Code that
+    wraps never scrolls, so it is not a tab stop."""
+    one_line = '\n' not in code_html
+    wc = f'hu-codewrap {"hu-codewrap-1" if one_line else "hu-codewrap-n"} {wrap_cls}'.strip()
+    focus = ''
+    if one_line:
+        cls += ' hu-oneline'
+        body = wbr(code_html)
+    else:
+        body = wrap_lines(code_html)
+        if body is None:
+            body, focus = code_html, ' tabindex="0"'  # keeps its lines and scrolls sideways
+        else:
+            cls += ' hu-wrap'
+    inner = f'<code>{body}</code>' if tag == 'pre' else body
+    return f'<div class="{wc}"><{tag} class="{cls}"{focus} data-copy="{html.escape(label)}">{inner}</{tag}></div>'
+
+
+PERIODS = [('monthly', 'Monthly'), ('annual', 'Annual'), ('lifetime', 'Lifetime')]
+
+
+def period_switch(periods: list[str]) -> str:
+    """Monthly | Annual | Lifetime radio group: the script shows one plan at a
+    time; without it every plan is listed and the switch is not shown. Laid
+    out (invisible) from the first paint when scripts run, so the card never
+    jumps when the script arrives."""
+    opts = ''.join(
+        f'<label><input type="radio" name="hu-period" value="{v}"{" checked" if v == "monthly" else ""}><span>{label}</span></label>'
+        for v, label in PERIODS if v in periods)
+    return f'<fieldset class="hu-seg hu-needs-js" data-period-switch><legend>Billing period</legend>{opts}</fieldset>'
+
+
+def has_full_annual(annual: dict) -> bool:
+    """Offer the annual plan only when every chargeable currency has its price."""
+    return all(annual.get(cc) for cc in PURCHASABLE_CURRENCIES)
+
+
+# Release notes ("What's new" on product pages). Both changelog formats are
+# normalised to [{'version', 'date', 'intro': [html], 'groups': [{'label',
+# 'cls', 'items': [entry]}]}], where an entry is {'html', 'kinds', 'sub':
+# [html], 'tail': html} or {'subhead': html} (a heading over the entries after
+# it; never counted or filtered). Kinds drive the filter chips: security (a
+# Security heading, or a line starting "Security:" or "**Security"), fix (a
+# Fixed heading or a "Fix:" line) and feature (an Added heading, or "First
+# release"). A feature line that merely starts with the word ("Security
+# headers on every response") is not a security change.
+KIND_CHIPS = [('security', 'Security'), ('fix', 'Fixes'), ('feature', 'Features')]
+HEADING_KIND = {'security': 'security', 'fixed': 'fix', 'fixes': 'fix', 'bug fixes': 'fix',
+                'added': 'feature', 'new': 'feature', 'features': 'feature', 'new features': 'feature'}
+
+
+def _starts_security(text: str) -> bool:
+    t = text.strip()
+    return bool(_re.match(r'^Security\s*:', t) or _re.match(r'^\*\*Security\b', t))
+
+
+def vendure_releases(raw: list[dict]) -> list[dict]:
+    """parse_changelog() output → normalised releases."""
+    out = []
+    for r in raw:
+        groups = []
+        for heading, items in r['sections']:
+            key = heading.strip().lower()
+            gk = HEADING_KIND.get(key)
+            cls = key if key in ('added', 'changed', 'fixed', 'security', 'removed', 'deprecated') else 'other'
+            norm_items = []
+            for it in items:
+                if 'subhead' in it:
+                    norm_items.append({'subhead': _md_inline(it['subhead'])})
+                    continue
+                kinds = {gk} if gk else set()
+                if _starts_security(it['text']):
+                    kinds.add('security')
+                norm_items.append({'html': _md_inline(it['text']), 'kinds': sorted(kinds) or ['other'],
+                                   'sub': [_md_inline(x) for x in it.get('sub', [])],
+                                   'tail': _md_inline(it['tail']) if it.get('tail') else ''})
+            groups.append({'label': heading.strip(), 'cls': cls, 'items': norm_items})
+        out.append({'version': r['version'], 'date': r.get('date', ''),
+                    'intro': [_md_inline(t) for t in r.get('intro', [])], 'groups': groups})
+    return out
+
+
+def entries(group: dict) -> list[dict]:
+    """A group's change entries, without its sub-headings."""
+    return [it for it in group['items'] if 'subhead' not in it]
+
+
+def _semver(v: str) -> tuple:
+    return tuple(int(x) for x in _re.findall(r'\d+', v.split('-')[0])[:3])
+
+
+def published_only(releases: list[dict], published: str, what: str) -> list[dict]:
+    """Release notes up to the version customers can actually install (a
+    changelog entry for a release that is not out yet stays off the page)."""
+    if not published:
+        return releases
+    keep = [r for r in releases if _semver(r['version']) <= _semver(published)]
+    if len(keep) < len(releases):
+        print(f"  note {what}: {len(releases) - len(keep)} changelog entr{'y' if len(releases) - len(keep) == 1 else 'ies'} "
+              f"newer than the published {published} left off the page")
+    return keep
+
+
+SEC_TAG = '<span class="hu-tag hu-tag-sec">Security</span>'
+
+
+def group_html(g: dict, list_cls: str, tag_each: bool = True, keep: int | None = None) -> str:
+    """One group's entries as lists: nested '  - ' items become a nested
+    list, a sub-heading starts a sub-group (hidden by the filter when none
+    of its entries match; a sub-heading with a 'cls' is a kind label, drawn
+    like a group label). tag_each=False leaves the Security tag off the
+    lines of a Security group whose label already says so. keep: show only
+    the first `keep` entries until "Show all N changes" (the rest, and any
+    list or sub-group left with none of the first, carry .hu-cl-x)."""
+    seen = [0]
+
+    def li(it):
+        extra = keep is not None and seen[0] >= keep
+        seen[0] += 1
+        tag = SEC_TAG + ' ' if 'security' in it['kinds'] and (tag_each or g['cls'] != 'security') else ''
+        sub = (f'<ul class="hu-cl-sub">' + ''.join(f'<li>{x}</li>' for x in it['sub']) + '</ul>') if it.get('sub') else ''
+        tail = f'<p class="hu-cl-tail">{it["tail"]}</p>' if it.get('tail') else ''
+        x = ' class="hu-cl-x"' if extra else ''
+        return (f'<li data-kind="{" ".join(it["kinds"])}"{x}>{tag}{it["html"]}{sub}{tail}</li>', extra)
+    out, cur, head = [], [], None
+
+    def flush():
+        hidden_all = bool(cur) and all(extra for _, extra in cur)
+        x = ' hu-cl-x' if hidden_all else ''
+        lst = (f'<ul class="{list_cls}{x if head is None else ""}">' + ''.join(h for h, _ in cur) + '</ul>') if cur else ''
+        if head is not None:
+            label = (f'<p class="hu-grp-label hu-grp-sub is-{head["cls"]}">{head["subhead"]}</p>' if head.get('cls')
+                     else f'<p class="hu-subhead">{head["subhead"]}</p>')
+            out.append(f'<div class="hu-subgrp{x}" data-subgrp>{label}{lst}</div>')
+        elif lst:
+            out.append(lst)
+    for it in g['items']:
+        if 'subhead' in it:
+            flush()
+            cur, head = [], it
+        else:
+            cur.append(li(it))
+    flush()
+    return ''.join(out)
+
+
+def new_pill(date: str) -> str:
+    """The "New" pill for a release no more than NEW_DAYS old on the build
+    date; data-new-until lets the script drop it once that has passed."""
+    if not date or not is_new(date):
+        return ''
+    try:
+        until = (_dt.date.fromisoformat(date[:10]) + _dt.timedelta(days=NEW_DAYS)).isoformat()
+    except ValueError:
+        return ''
+    return f'<span class="hu-pill hu-pill-new" data-new-until="{until}">New</span>'
+
+
+# A release that opens by default (the latest) and has more than CLIP_AT
+# changes shows about CLIP_SHOW of them, spread over its groups (at least two
+# each), then "Show all N changes".
+CLIP_AT, CLIP_SHOW = 10, 8
+
+
+def _release_html(r: dict, idx: int, id_prefix: str) -> str:
+    kinds_here = {k for g in r['groups'] for it in entries(g) for k in it['kinds']}
+    total = sum(len(entries(g)) for g in r['groups'])
+    groups = [g for g in r['groups'] if entries(g)]
+    keep = max(2, -(-CLIP_SHOW // max(1, len(groups)))) if idx == 0 and total > CLIP_AT else None
+    clip = keep is not None and any(len(entries(g)) > keep for g in groups)
+    if not clip:
+        keep = None
+    head = [f'<span class="hu-ver">v{html.escape(r["version"])}</span>']
+    if r['date']:
+        head.append(f'<time class="hu-rel-date" datetime="{html.escape(r["date"])}">{html.escape(pretty_date(r["date"]))}</time>')
+    if r.get('scope'):
+        head.append(f'<span class="hu-rel-scope">{html.escape(r["scope"])}</span>')
+    head.append(new_pill(r['date']))
+    if idx == 0:
+        head.append('<span class="hu-pill hu-pill-latest">Latest</span>')
+    if 'security' in kinds_here:
+        head.append(SEC_TAG)
+    body = ''.join(f'<p class="hu-rel-intro" data-cl-intro>{t}</p>' for t in r['intro'])
+    for g in r['groups']:
+        # A Security group needs no label: every line in it carries the tag.
+        # A WordPress release's groups are its editions (free plugin, Pro
+        # add-on), each with kind labels inside (build_wordpress.by_kind()).
+        if g['cls'] in ('free', 'pro'):
+            label = f'<p class="hu-ed-label">{html.escape(g["label"])}</p>'
+        else:
+            label = (f'<p class="hu-grp-label is-{g["cls"]}">{html.escape(g["label"])}</p>'
+                     if g['label'] and g['cls'] != 'security' else '')
+        ed = ' hu-grp-ed' if g['cls'] in ('free', 'pro') else ''
+        body += f'<div class="hu-grp{ed}" data-grp>{label}{group_html(g, "hu-cl-list", keep=keep)}</div>'
+    rid = f'{id_prefix}-v{html.escape(r["version"])}'
+    more = (f'<button type="button" class="hu-clip-btn hu-needs-js" data-clip-btn aria-expanded="false" '
+            f'aria-controls="{rid}-body">Show all {total} changes</button>' if clip else '')
+    return (f'<details class="hu-rel" id="{rid}" data-rel{" data-clip" if clip else ""}{" open" if idx == 0 else ""}>'
+            f'<summary>{"".join(head)}</summary><div class="hu-rel-body" id="{rid}-body">{body}{more}</div></details>')
+
+
+SHOW_FIRST = 5
+
+
+def kind_filter(releases: list[dict], name: str, cls: str = 'hu-cl-tools') -> str:
+    """All / Security / Fixes / Features chips, only for kinds the notes
+    contain. Shown from the first paint when scripts run (the hu-js class on
+    <html>), so the list below never jumps when the script arrives."""
+    counts = {k: 0 for k, _ in KIND_CHIPS}
+    for r in releases:
+        for g in r['groups']:
+            for it in entries(g):
+                for k in it['kinds']:
+                    if k in counts:
+                        counts[k] += 1
+    chips = [(k, label, counts[k]) for k, label in KIND_CHIPS if counts[k]]
+    if not chips:
+        return ''
+    total = len(releases)
+    chip_html = (f'<label class="hu-chip"><input type="radio" name="{name}-kind" value="all" checked>'
+                 f'<span>All</span></label>' + ''.join(
+                     f'<label class="hu-chip"><input type="radio" name="{name}-kind" value="{k}">'
+                     f'<span>{label} <span class="hu-chip-n" aria-hidden="true">{n}</span>'
+                     f'<span class="sr-only">, {n} {"change" if n == 1 else "changes"}</span></span></label>' for k, label, n in chips))
+    return (f'<div class="{cls} hu-needs-js" data-cl-tools><fieldset class="hu-chips" data-cl-filter>'
+            f'<legend>Show changes</legend>{chip_html}</fieldset>'
+            f'<p class="hu-cl-status" role="status" data-cl-status data-all="Showing all {total} release{"" if total == 1 else "s"}."></p></div>')
+
+
+def release_notes(releases: list[dict], product: str, full_url: str | None = None,
+                  id_prefix: str = 'whats-new', lead_html: str | None = None) -> str:
+    """The "What's new" block: latest release open, the rest folded, releases
+    past the first five behind "Show all N releases" (a disclosure: the label
+    stays put and aria-expanded carries the state), kind filter chips for the
+    kinds the notes actually contain."""
+    if not releases:
+        return ''
+    latest = releases[0]
+    when = f', {pretty_date(latest["date"])}' if latest['date'] else ''
+    full = (f' <a href="{full_url}">Full changelog<span class="sr-only"> for {html.escape(product)}</span></a>'
+            if full_url else '')
+    lead = lead_html or (f'<p class="hu-cl-lead">Latest release: <span class="font-mono">v{html.escape(latest["version"])}</span>'
+                         f'{html.escape(when)}.{full}</p>')
+    tools = kind_filter(releases, id_prefix)
+    first = ''.join(_release_html(r, i, id_prefix) for i, r in enumerate(releases[:SHOW_FIRST]))
+    rest = ''
+    if len(releases) > SHOW_FIRST:
+        n = len(releases)
+        more_id = f'{id_prefix}-older'
+        rest = (f'<button type="button" class="btn btn-secondary hu-more-btn hu-needs-js" data-cl-more-btn '
+                f'aria-controls="{more_id}" aria-expanded="false">Show all {n} releases</button>'
+                f'<div class="hu-more" id="{more_id}" data-cl-more>'
+                + ''.join(_release_html(r, i + SHOW_FIRST, id_prefix)
+                          for i, r in enumerate(releases[SHOW_FIRST:])) + '</div>')
+    return (f'{lead}<div data-changelog>{tools}<div class="hu-rels">{first}</div>{rest}</div>')
+
+
+def gbp_range(plan: str) -> str:
+    """'£2.95–£14.95' across the suite for one plan, from each plugin's GBP price."""
+    def amount(s):
+        m = _re.search(r'[0-9][0-9.]*', s)
+        return float(m.group(0)) if m else 0.0
+    vals = sorted({p.get('pricing', CURRENCIES)['GBP'][plan] for p in PLUGINS}, key=amount)
+    return vals[0] if len(vals) == 1 else f'{vals[0]}–{vals[-1]}'
 
 
 def index_page():
@@ -1352,111 +2112,142 @@ def index_page():
             f'<li><span class="text-accent-600 shrink-0" style="margin-top:2px">{TICK_SVG}</span><span>{html.escape(f)}</span></li>'
             for f in short_features[p['slug']]
         )
+        # The version links to the product page's release notes when the
+        # package has a changelog, else to the changelog page.
+        notes_href = (f"/vendure-plugins/{p['slug']}/#whats-new" if p.get('releases')
+                      else f"/vendure-plugins/{p['slug']}/changelog/")
         cards.append(f'''
-<article class="vp-card pf-card">
+<article class="vp-card pf-card" data-cats="{' '.join(categories_of(p['slug']))}" data-keywords="{html.escape(card_keywords(p['slug']))}">
+  <div class="vp-card-top">
+    <img class="vp-plugin-logo" src="/vendure-plugins/logos/{p['slug']}.svg" alt="" width="56" height="56">
+    <a href="{notes_href}" class="hu-ver-link">What's new<span class="sr-only"> in {html.escape(p['title'])} for Vendure, version</span> <!--email_off--><span class="hu-ver" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span><!--/email_off--></a>
+  </div>
   <h3>{html.escape(p['title'])}<span class="sr-only"> for Vendure</span></h3>
-  <p class="vp-card-tagline">{html.escape(p['tagline'])}</p>
+  <p class="vp-card-tagline">{_md_inline(p['tagline'])}</p>
   <ul>{feats_html}</ul>
   <div class="vp-card-actions">
     {card_meta(p)}
-    <a href="/vendure-plugins/{p['slug']}/" class="btn btn-primary text-sm" style="padding:.6rem 1.2rem">Learn more →</a>
-    <a href="/vendure-plugins/{p['slug']}/changelog/" class="ml-auto" title="Changelog"><!--email_off--><span class="text-xs text-ink-500 font-mono hover:underline" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span><!--/email_off--></a>
+    <a href="/vendure-plugins/{p['slug']}/" class="btn btn-primary text-sm" style="padding:.6rem 1.2rem">Learn more<span class="sr-only"> about {html.escape(p['title'])} for Vendure</span> →</a>
   </div>
 </article>''')
 
-    comparison_rows = [
-        ['Drop-in install (one yarn add)', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes'],
-        ['Channel-aware', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes'],
-        ['Admin UI included', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes'],
-        ['MySQL / MariaDB / PostgreSQL', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes'],
-        ['Licence activation in the admin', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes'],
-        ['One-click in-app updates', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes'],
-        ['Database tables', '4', '2', '1', '2', '8', '5', '3', '14'],
-        ['Privacy controls', 'Signed links, no tracking pixels', 'IP hash', 'IP allowlist', 'DNT, IP anonymisation, consent gate', 'Allowlist bypass', 'Opt-out + exclusions', 'Session-bound order access', 'Customer-scoped API, no card data stored'],
-        ['Offline licence verification', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes', 'yes'],
-        ['Self-hosted (no calls to us at runtime)', 'yes', 'yes', 'yes', 'yes', 'yes-note', 'yes-note', 'yes', 'yes'],
+    # Comparison: one column per plugin, in catalogue order, from per-plugin
+    # values (the shared rows are the same suite-wide features).
+    same = lambda v: {p['slug']: v for p in PLUGINS}
+    compare = [
+        ('Drop-in install (one yarn add)', same('yes')),
+        ('Channel-aware', same('yes')),
+        ('Admin UI included', same('yes')),
+        ('MySQL / MariaDB / PostgreSQL', same('yes')),
+        ('Licence activation in the admin', same('yes')),
+        ('One-click in-app updates', same('yes')),
+        # Counted in each package's source (2026-11-04): its entities and the
+        # tables it creates on boot, not the licence store every plugin shares.
+        ('Database tables', {'quotations': '4', 'email-tracking': '3', 'geo-block': '1', 'visitor-analytics': '5',
+                             'fraud-prevention': '10', 'review-requests': '7', 'checkout-guard': '5',
+                             'business-credit': '15', 'payments': '7'}),
+        ('Privacy controls', {'quotations': 'Signed links, no tracking pixels', 'email-tracking': 'IP hash',
+                              'geo-block': 'IP allowlist', 'visitor-analytics': 'DNT, IP anonymisation, consent gate',
+                              'fraud-prevention': 'Allowlist bypass', 'review-requests': 'Opt-out + exclusions',
+                              'checkout-guard': 'Session-bound order access',
+                              'business-credit': 'Customer-scoped API, no card data stored',
+                              'payments': 'Saved cards stay with Stripe / Adyen'}),
+        ('Offline licence verification', same('yes')),
+        # † on every plugin that calls a third-party service (THIRD_PARTY);
+        # the note under the table says which, and why.
+        ('Self-hosted (no customer data sent to us)', {**same('yes'), **{s: 'yes-note' for s in NOTED_THIRD_PARTY}}),
     ]
     def fmt_cell(c, plain=False):
         if c == 'yes': return '<span class="text-accent-600 font-bold">✓</span>' if not plain else '✓'
         if c == 'yes-note':
             return ('<span class="text-accent-600 font-bold">✓</span>'
-                    '<sup><a href="#threat-intel-note" class="text-ink-600" style="text-decoration:none;display:inline-block;min-width:24px;min-height:24px;text-align:center">†<span class="sr-only"> see the note on optional third-party calls</span></a></sup>'
+                    '<sup><a href="#threat-intel-note" class="text-ink-600" style="text-decoration:none;display:inline-block;min-width:24px;min-height:24px;text-align:center">†<span class="sr-only"> see the note on third-party services</span></a></sup>'
                     if not plain else '✓ †')
         if c == 'no': return '<span class="text-ink-500">—</span>' if not plain else '—'
         return html.escape(c)
     rows_html = '\n'.join(
         '<tr>' +
-        f'<th class="p-4 font-semibold text-ink-800 border-t border-ink-100" style="font-size:14px; text-align:left">{html.escape(r[0])}</th>' +
+        f'<th class="p-4 font-semibold text-ink-800 border-t border-ink-100" style="font-size:14px; text-align:left">{html.escape(label)}</th>' +
         ''.join(
-            f'<td class="p-4 border-t border-ink-100 text-sm {"text-ink-900 font-medium" if c not in ("yes","no") else ""}" style="text-align:center; vertical-align:middle">{fmt_cell(c)}</td>'
-            for c in r[1:]
+            f'<td class="p-4 border-t border-ink-100 text-sm {"text-ink-900 font-medium" if vals[p["slug"]] not in ("yes", "yes-note", "no") else ""}" style="text-align:center; vertical-align:middle">{fmt_cell(vals[p["slug"]])}</td>'
+            for p in PLUGINS
         ) +
         '</tr>'
-        for r in comparison_rows
+        for label, vals in compare
     )
+    compare_head = ''.join(
+        f'<th class="p-4 font-semibold text-ink-900" style="text-align:center">{html.escape(p["title"])}</th>' for p in PLUGINS)
     # Mobile fallback: render the same data as cards, one per plugin
-    plugin_titles = ['Quotations', 'Email Tracking', 'Geo Block', 'Visitor Analytics', 'Fraud Prevention', 'Review Requests', 'Checkout Guard', 'Business Credit']
     mobile_cards = []
-    for idx, title in enumerate(plugin_titles):
+    for p in PLUGINS:
         rows_for_card = '\n'.join(
             f'<div class="vp-cmp-row">'
-            f'<span class="vp-cmp-key">{html.escape(r[0])}</span>'
-            f'<span class="vp-cmp-val">{fmt_cell(r[idx + 1])}</span>'
+            f'<span class="vp-cmp-key">{html.escape(label)}</span>'
+            f'<span class="vp-cmp-val">{fmt_cell(vals[p["slug"]])}</span>'
             f'</div>'
-            for r in comparison_rows
+            for label, vals in compare
         )
         mobile_cards.append(
             f'<article class="vp-compare-card">'
-            f'<h3 class="font-bold text-lg text-ink-900 mb-1">{title}</h3>'
+            f'<h3 class="font-bold text-lg text-ink-900 mb-1">{html.escape(p["title"])}</h3>'
             f'<div>{rows_for_card}</div>'
             f'</article>'
         )
 
-    # Compatibility matrix — one row per plugin. Vendure range comes
-    # from each plugin's declared peer dependency; "Verified on" is the
-    # newest Vendure release we build + smoke-test against before
-    # publishing. Kept as data so a plugin version bump (which flows in
-    # via versions.json) keeps the "Latest" column honest.
-    VERIFIED_VENDURE = '3.7.1'
-    compat = {
-        'quotations':        ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-        'email-tracking':    ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-        'geo-block':         ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-        'visitor-analytics': ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-        'fraud-prevention':  ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-        'review-requests':   ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-        'checkout-guard':    ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-        'payments':          ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-        'business-credit':   ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'),
-    }
+    # Compatibility matrix — one row per plugin. The Vendure range is each
+    # plugin's declared peer dependency; "Verified on" is the Vendure the
+    # monorepo builds and runs the tests against before a release
+    # (VERIFIED_VENDURE, read from the installed @vendure/core). No package
+    # declares a Node or TypeScript range, so the table shows none.
     compat_rows_html = ''
     for p in PLUGINS:
-        vendure_range, node_range, ts_range = compat.get(
-            p['slug'], ('3.5 – 3.7', '20 LTS+', '5.4 – 6.x'))
+        vendure_range = html.escape(range_text(vendure_peer_range(p['pkg'])) or '—')
+        verified = f'<span class="vp-compat-ok">✓ {html.escape(VERIFIED_VENDURE)}</span>' if VERIFIED_VENDURE else '—'
         compat_rows_html += (
             '<tr>'
             f'<th style="text-align:left"><a href="/vendure-plugins/{p["slug"]}/">{html.escape(p["title"])}</a></th>'
             f'<td style="text-align:center"><!--email_off--><span class="vp-compat-ver font-mono" data-hulo-pkg="{html.escape(p["pkg"])}" data-hulo-version-prefix="v">v{p["version"]}</span><!--/email_off--></td>'
-            f'<td style="text-align:center">{vendure_range}</td>'
-            f'<td style="text-align:center">{node_range}</td>'
-            f'<td style="text-align:center">{ts_range}</td>'
-            f'<td style="text-align:center"><span class="vp-compat-ok">✓ {VERIFIED_VENDURE}</span></td>'
+            f'<td style="text-align:center"><span class="font-mono">{vendure_range}</span></td>'
+            f'<td style="text-align:center">{verified}</td>'
             '</tr>'
         )
+    min_v = suite_min()
+    verified_h2 = (f'Verified on Vendure {html.escape(VERIFIED_VENDURE)}.' if VERIFIED_VENDURE
+                   else f'Built for Vendure {min_v} and later 3.x.')
+    verified_p = (f'Current releases are built and tested against Vendure {html.escape(VERIFIED_VENDURE)} before they are published.'
+                  if VERIFIED_VENDURE else 'Current releases are built and tested before they are published.')
+    # Source: the plugins whose GitHub repository is public right now.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=9) as ex:
+        repos = dict(zip([p['slug'] for p in PLUGINS], ex.map(public_repo, [p['pkg'] for p in PLUGINS])))
+    open_src = [p for p in PLUGINS if repos.get(p['slug'])]
+    if len(open_src) == len(PLUGINS):
+        src_sentence = ' The source of every plugin is public on GitHub under <a class="underline underline-offset-2" href="https://github.com/huloglobal">github.com/huloglobal</a>.'
+    elif open_src:
+        links = [f'<a class="underline underline-offset-2" href="{repos[p["slug"]]}">{html.escape(p["title"])}</a>' for p in open_src]
+        src_sentence = (' The source of ' + ', '.join(links[:-1]) + (' and ' if len(links) > 1 else '') + links[-1]
+                        + ' is public on GitHub under <a class="underline underline-offset-2" href="https://github.com/huloglobal">github.com/huloglobal</a>.')
+    else:
+        src_sentence = ''
 
     faqs = [
-        ('How are the plugins licensed?', 'Each plugin is licensed individually. Every install gets <strong>14 days with every feature on, no card and no key</strong>. To keep the premium features, subscribe from the plugin\'s admin page at any point — the first charge falls on the day the 14 days end, never before, and you can cancel any time — as a monthly (£2.95–£14.95/mo) or annual (two months free) subscription. Or buy a one-off lifetime licence (£59–£299, never expires, 12 months of updates included). Every option gives you a JWT licence key that installs itself in the admin.'),
+        ('How are the plugins licensed?', f'Each plugin is licensed individually. Every install gets <strong>14 days with every feature on, no card and no key</strong>. To keep the premium features, subscribe from the plugin\'s admin page at any point — the first charge falls on the day the 14 days end, never before, and you can cancel any time — as a monthly ({gbp_range("monthly")}/mo) or annual (two months free) subscription. Or buy a one-off lifetime licence ({gbp_range("lifetime")}, never expires, 12 months of updates included). Every option gives you a JWT licence key that installs itself in the admin.'),
         ('How do I buy and activate a licence?', 'Open the plugin\'s page in your Vendure admin, pick monthly or annual on the licence banner and click <strong>Subscribe</strong> (or choose lifetime and click <strong>Buy lifetime</strong>). Stripe Checkout opens in a new tab; within a minute of payment the licence installs itself in the admin — no email round-trip, no <code>.env</code> edit, no restart. Renewed subscription keys are picked up automatically. Prefer to buy on the web? Use the plugin\'s buy page and paste the emailed key into the admin instead.'),
         ('How do I manage / cancel my subscription?', 'Every receipt email includes a Stripe Customer Portal link — click it to update your payment method, see invoices, or cancel. No need to email us. Lifetime customers have nothing to manage; reply to your receipt if you need a VAT invoice.'),
         ('I lost my licence key — what now?', 'Re-send every active key on file at <a class="underline underline-offset-2" href="https://elite.charity/licence/forgot">elite.charity/licence/forgot</a>. We always show the same confirmation regardless of whether the email is on file (anti-enumeration), so check spam if nothing arrives. Limited to 5 requests per email per day.'),
         ('Can I export or delete my data?', 'Yes — under UK GDPR you have a right to see, export and erase the personal data we hold. Visit <a class="underline underline-offset-2" href="https://elite.charity/licence/privacy">elite.charity/licence/privacy</a> and we\'ll email you a magic link to do both.'),
-        ('Do the plugins call home?', 'No — licence verification is offline. Each plugin verifies the JWT at boot against an embedded public key. A revocation list is polled once a week (cached, soft-fail), so a brief outage at our end never disables your store. Nothing else leaves your server.'),
+        ('Do the plugins call home?', 'Only about the licence, and never with customer data. The licence key itself is verified offline, against a public key built into the plugin. Once a day each plugin sends our licence server a heartbeat (the plugin\'s name and version, its licence id if it has one, and a fingerprint of the build) and, while it has no licence key, a check-in with an anonymous instance id (a hash) so the server can keep the 14-day evaluation clock. They carry anonymous usage counts, numbers only and never names, emails or orders, so the reminder and renewal emails can say what the plugin did. Once a week the plugin fetches the licence revocation list (cached and soft-fail, so a brief outage at our end never disables your store), after you click <strong>Subscribe</strong> in the admin it asks the licence server for your new key, and once a day it asks the npm registry whether a newer version is out. Set <code>HULO_HEARTBEAT_DISABLED=true</code> to stop the heartbeat; the licence keeps working.'),
         ('Where does customer data live?', 'On your Vendure server — same DB as the rest of your data. No third-party analytics provider. The visitor-analytics plugin\'s ingest endpoint is on your domain.'),
-        ('What if I don\'t buy a licence?', 'Plugins still boot in a free tier — install, configure, browse data, and the admin UI is functional. The public storefront endpoints are limited (geo-block always reports `enabled:false`; visitor-analytics dashboards return 403). Buy a key when you\'re ready.'),
-        ('Can I see the source?', 'Yes — every plugin is on GitHub under <a class="underline underline-offset-2" href="https://github.com/huloglobal">github.com/huloglobal</a> and <a class="underline underline-offset-2" href="https://github.com/exceeded">github.com/exceeded</a>. MIT-style licence on the code itself, separate paid licence for production use.'),
-        ('Do they work on Vendure 2.x?', 'They target Vendure 3.x (3.0+). Vendure 2.x isn\'t supported because we use some of the 3.x customField improvements.'),
+        ('What if I don\'t buy a licence?', 'Plugins still boot in a free tier — install, configure, browse data, and the admin UI is functional. The public storefront endpoints are limited (geo-block always reports <code>enabled:false</code>; visitor-analytics dashboards return 403). Buy a key when you\'re ready.'),
+        ('Can I see the source?', 'The plugins are licensed under the GNU AGPL-3.0, and a commercial licence key switches on the premium features.' + src_sentence),
+        ('Do they work on Vendure 2.x?', f'They need Vendure {min_v} or later (any 3.x from {min_v}). Vendure 2.x isn\'t supported because we use some of the 3.x customField improvements.'),
     ]
-    faq_html = '\n'.join(f'<details><summary>{html.escape(q)}</summary><p>{a}</p></details>' for q, a in faqs)
+    # Ids for the answers other pages link to (revealHash() opens them).
+    faq_ids = {'Do the plugins call home?': 'call-home'}
+    def faq_item(q, a):
+        attr = f' id="{faq_ids[q]}"' if q in faq_ids else ''
+        return f'<details{attr}><summary>{html.escape(q)}</summary><p>{a}</p></details>'
+    faq_html = '\n'.join(faq_item(q, a) for q, a in faqs)
 
     body = f'''
 <section class="vp-hero pf-vd">
@@ -1473,11 +2264,13 @@ Battle-tested in our own UK e-commerce stack. One <code class="font-mono text-sm
 </section>
 
 <section class="vp-section pf-vd" style="background:#fff">
-<div class="container-page">
+<div class="container-page" data-catalog>
 <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-ink-900" style="margin-bottom:40px">All nine Vendure plugins</h2>
+{catalog_controls([p['slug'] for p in PLUGINS], 'Vendure plugins')}
 <div class="vp-cards-grid">
 {''.join(cards)}
 </div>
+{catalog_empty('Vendure plugins')}
 </div>
 </section>
 
@@ -1489,18 +2282,11 @@ Battle-tested in our own UK e-commerce stack. One <code class="font-mono text-sm
 </div>
 <!-- Desktop / wide tablet: full comparison table -->
 <div class="vp-compare-table rounded-2xl border border-ink-100 bg-white table-wrap" role="region" aria-label="Plugin comparison" tabindex="0">
-<table class="w-full" style="min-width:1320px">
+<table class="w-full" style="min-width:1460px">
 <thead>
 <tr>
 <th class="p-4 font-medium text-sm text-ink-500" style="text-align:left"><span class="sr-only">Feature</span></th>
-<th class="p-4 font-semibold text-ink-900" style="text-align:center">Quotations</th>
-<th class="p-4 font-semibold text-ink-900" style="text-align:center">Email Tracking</th>
-<th class="p-4 font-semibold text-ink-900" style="text-align:center">Geo Block</th>
-<th class="p-4 font-semibold text-ink-900" style="text-align:center">Visitor Analytics</th>
-<th class="p-4 font-semibold text-ink-900" style="text-align:center">Fraud Prevention</th>
-<th class="p-4 font-semibold text-ink-900" style="text-align:center">Review Requests</th>
-<th class="p-4 font-semibold text-ink-900" style="text-align:center">Checkout Guard</th>
-<th class="p-4 font-semibold text-ink-900" style="text-align:center">Business Credit</th>
+{compare_head}
 </tr>
 </thead>
 <tbody>{rows_html}</tbody>
@@ -1511,7 +2297,7 @@ Battle-tested in our own UK e-commerce stack. One <code class="font-mono text-sm
 {''.join(mobile_cards)}
 </div>
 <p id="threat-intel-note" class="mt-6 text-xs text-ink-500 leading-relaxed max-w-3xl mx-auto md:mx-0">
-<strong>†</strong> Two plugins make optional outbound calls to third parties, never to Hulo Global. <strong>Fraud Prevention</strong> fetches threat-intelligence — IP-reputation lookups (<code class="font-mono">ip-api.com</code>) and nightly public blocklist feeds (FireHOL, Spamhaus, Tor, disposable-email domains), cached, and switchable off. <strong>Review Requests</strong> optionally reads your live rating from the free Trustpilot API and sends invitation emails via your own SMTP. As with every plugin, nothing phones home to us at runtime for the core function.
+<strong>†</strong> These plugins also call third-party services from your server, never Hulo Global. Required for what they do: <strong>Payments</strong> sends each payment to the providers you connect (Stripe, Adyen, PayPal and the others); <strong>Checkout Guard</strong> uses your own Stripe account for holds and the nightly reconciliation; <strong>Business Credit</strong> creates card pay links and top-ups in your own Stripe account. Optional: <strong>Fraud Prevention</strong> fetches threat intelligence — IP-reputation lookups (<code class="font-mono">ip-api.com</code>) and nightly public blocklist feeds (FireHOL, Spamhaus, Tor, disposable-email domains), cached, and switchable off — and reads the card checks from your Stripe account; <strong>Review Requests</strong> reads your live rating from Trustpilot or Google if you show it, and sends invitation emails via your own SMTP. Alerts from any plugin go only to the channels you set up. The licence check-ins every plugin sends us are described under <a class="underline underline-offset-2" href="#call-home">“Do the plugins call home?”</a> below.
 </p>
 </div>
 </section>
@@ -1520,18 +2306,16 @@ Battle-tested in our own UK e-commerce stack. One <code class="font-mono text-sm
 <div class="container-page">
 <div class="max-w-2xl mx-auto text-center" style="margin-bottom:48px">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">Compatibility</p>
-<h2 class="mt-4 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">Verified against the latest Vendure.</h2>
-<p class="mt-4 text-ink-600 leading-relaxed">Every plugin is built and smoke-tested against the newest Vendure release before publishing. The table below is the current support surface — installs cleanly with <code class="font-mono text-sm bg-ink-100 px-1.5 py-0.5 rounded">yarn</code> or <code class="font-mono text-sm bg-ink-100 px-1.5 py-0.5 rounded">npm</code>.</p>
+<h2 class="mt-4 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">{verified_h2}</h2>
+<p class="mt-4 text-ink-600 leading-relaxed">{verified_p} The table below is the current support surface — installs cleanly with <code class="font-mono text-sm bg-ink-100 px-1.5 py-0.5 rounded">yarn</code> or <code class="font-mono text-sm bg-ink-100 px-1.5 py-0.5 rounded">npm</code>.</p>
 </div>
 <div class="vp-compat-wrap rounded-2xl border border-ink-100 bg-white table-wrap" role="region" aria-label="Compatibility matrix" tabindex="0">
-<table class="vp-compat w-full" style="min-width:680px">
+<table class="vp-compat w-full" style="min-width:520px">
 <thead>
 <tr>
 <th style="text-align:left">Plugin</th>
 <th style="text-align:center">Latest</th>
 <th style="text-align:center">Vendure&nbsp;core</th>
-<th style="text-align:center">Node</th>
-<th style="text-align:center">TypeScript</th>
 <th style="text-align:center">Verified&nbsp;on</th>
 </tr>
 </thead>
@@ -1539,7 +2323,7 @@ Battle-tested in our own UK e-commerce stack. One <code class="font-mono text-sm
 </table>
 </div>
 <p class="mt-6 text-sm text-ink-500 max-w-3xl mx-auto text-center">
-A boot-time check emits a non-fatal warning if <code class="font-mono text-xs bg-ink-100 px-1 py-0.5 rounded">@vendure/core</code> is outside the tested range, so a future 3.x upgrade is always safe to try. Vendure 4.0 will be tested and re-declared once its changelog lands. Node 20 LTS or newer recommended.
+A boot-time check emits a non-fatal warning if <code class="font-mono text-xs bg-ink-100 px-1 py-0.5 rounded">@vendure/core</code> is outside the supported range, so a future 3.x upgrade is always safe to try. Vendure 4.0 will be tested and re-declared once its changelog lands.
 </p>
 </div>
 </section>
@@ -1548,18 +2332,19 @@ A boot-time check emits a non-fatal warning if <code class="font-mono text-xs bg
 <div class="container-page max-w-3xl">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">FAQ</p>
 <h2 class="mt-4 text-3xl md:text-4xl font-bold tracking-tight text-ink-900" style="margin-bottom:40px">Common questions.</h2>
-<div class="vp-faq">{faq_html}</div>
+{EXPAND_BAR}<div class="vp-faq">{faq_html}</div>
 </div>
 </section>
 '''
     return header('Vendure plugins by Hulo Global',
                   'https://huloglobal.com/vendure-plugins/',
-                  'Production-grade Vendure plugins by Hulo Global — email tracking, geo-blocking, visitor analytics, fraud prevention, Trustpilot review requests. Drop-in, self-hosted, licensed.') + platform_band('vd') + body + FOOTER
+                  'Production-grade Vendure plugins by Hulo Global: payments, checkout protection, fraud prevention, business credit, quotations, Trustpilot review requests, email tracking, visitor analytics and geo-blocking. Drop-in, self-hosted, licensed.') + platform_band('vd') + body + FOOTER
 
 
 def plugin_page(p):
+    # Feature copy uses the changelog's markdown subset (`code`, **bold**).
     feats_html = '\n'.join(
-        f'<div class="vp-feat"><div class="vp-feat-tick" aria-hidden="true">{TICK_SVG}</div><div><h3>{html.escape(t)}</h3><p>{html.escape(d)}</p></div></div>'
+        f'<div class="vp-feat"><div class="vp-feat-tick" aria-hidden="true">{TICK_SVG}</div><div><h3>{_md_inline(t)}</h3><p>{_md_inline(d)}</p></div></div>'
         for t, d in list(p['features']) + COMMON_FEATURES
     )
     endpoints_html = '\n'.join(
@@ -1568,7 +2353,7 @@ def plugin_page(p):
     )
     env_var_name = 'HULO_LICENCE_KEY_' + p['slug'].upper().replace('-', '_')
 
-    config_block = f'''<span class="vp-comment"># vendure-config.ts</span>
+    config_block = f'''<span class="vp-comment">// vendure-config.ts</span>
 import {{ <span class="vp-key">{p['class']}</span> }} from <span class="vp-str">'{p['pkg']}'</span>;
 
 export const config: VendureConfig = {{
@@ -1580,29 +2365,56 @@ export const config: VendureConfig = {{
     <span class="vp-comment">// ... your other plugins</span>
   ],
 }};'''
+    compile_block = f'''<span class="vp-comment">// compile-admin-ui.ts</span>
+import {{ compileUiExtensions }} from <span class="vp-str">'@vendure/ui-devkit/compiler'</span>;
+import {{ <span class="vp-key">{p['class']}</span> }} from <span class="vp-str">'{p['pkg']}'</span>;
+
+compileUiExtensions({{
+  outputPath: path.join(__dirname, <span class="vp-str">'admin-ui'</span>),
+  extensions: [<span class="vp-key">{p['class']}</span>.uiExtensions],
+}});'''
 
     short_id = p['slug']
-    pkg_short = p['pkg'].split('/')[-1]
+    pkg = p['pkg']
+    pkg_short = pkg.split('/')[-1]
     pricing = p.get('pricing', CURRENCIES)
     price_mo_gbp = pricing['GBP']['monthly']
     price_lt_gbp = pricing['GBP']['lifetime']
+    # Annual: the licence server's buy-page prices (see annual_prices()).
+    annual = annual_prices(p['slug'], pricing)
+    if not has_full_annual(annual):
+        annual = {}
     # Every plugin page carries an override: real prices for purchasable
     # currencies, estimates only for anything without a Stripe amount.
     pricing_override_js = ('<script>window.HULO_PRICES_OVERRIDE = '
-        + json.dumps(display_price_table(price_mo_gbp, price_lt_gbp, p.get('pricing'))) + ';</script>')
+        + json.dumps(display_price_table(price_mo_gbp, price_lt_gbp, p.get('pricing'), annual)) + ';</script>')
+    def buy_link(plan: str, text: str) -> str:
+        return f'<a class="underline underline-offset-2" href="{BUY_BASE}/{pkg_short}?plan={plan}">{text}<span class="sr-only"> licence for {html.escape(p["title"])}</span></a>'
+    plans_text = (buy_link('monthly', 'monthly') + (', ' + buy_link('annual', 'annual') + ' (two months free)' if annual else '')
+                  + ' or ' + buy_link('lifetime', 'lifetime'))
+    needs_migration = p['slug'] in NEEDS_MIGRATION
+    third = THIRD_PARTY.get(p['slug'], '')
     faqs = [
         ('How do I get a licence key?',
-         f'<a class="underline underline-offset-2" href="{BUY_BASE}/{pkg_short}">Buy here</a> — Stripe Checkout — monthly, annual (two months free) or lifetime. You\'ll receive the JWT key by email. Paste it into the plugin\'s admin settings (Activate) — no redeploy — or set it as <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">{env_var_name}</code> in your <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">.env</code> if you prefer config-as-code; the env key wins when both are present.'),
+         f'Buy one on the web with Stripe Checkout: {plans_text}. You\'ll receive the JWT key by email. Paste it into the plugin\'s admin settings (Activate) — no redeploy — or set it as <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">{env_var_name}</code> in your <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">.env</code> if you prefer config-as-code; the env key wins when both are present.'),
         ('Does it work without a key?',
          'Yes. Every install runs with <strong>all premium features on for its first 14 days</strong> — no card, no licence key, nothing to configure — so you can judge it on your real traffic. After that it keeps working in the free tier. To keep them, click <strong>Subscribe</strong> on the plugin\'s admin page: the first charge falls on the day the 14 days end, you can cancel any time before then, and the licence installs itself.'),
         ('Which databases are supported?',
          'MySQL, MariaDB and PostgreSQL (verified against PostgreSQL 17). The plugin follows your Vendure <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">dbConnectionOptions</code> automatically — there is nothing to configure.'),
         ('How do updates work?',
          f'The plugin checks the npm registry daily. When a newer version exists, the admin dashboard shows an update banner with a What\'s-new link to the <a class="underline underline-offset-2" href="/vendure-plugins/{p["slug"]}/changelog/">changelog</a> and an "Update now" button that installs the registry-verified release via your own package manager and gracefully restarts under your process supervisor. Prefer manual control? Copy the install command instead, or set <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">HULO_SELF_UPDATE=off</code>.'),
+        # Owner sign-off: privacy copy (the same facts as the index FAQ
+        # "Do the plugins call home?" and THIRD_PARTY).
         ('Where is data stored?',
-         'In your Vendure database. The plugin adds its own tables (created on boot, or via a migration for the plugins that register entities) — your data never leaves your server.'),
+         'In your Vendure database: the plugin keeps its data in its own tables there'
+         + (' (added with a migration).' if needs_migration and p['slug'] not in MIGRATION_WHY else ', created on boot.')
+         + ' Hulo Global never receives your customer data: the plugin sends our licence server only the licence check-ins and usage counts described under '
+         + '<a class="underline underline-offset-2" href="/vendure-plugins/#call-home">“Do the plugins call home?”</a>.'
+         + (' ' + html.escape(third) if third else '')),
         ('Will it survive a Vendure upgrade?',
-         f'Tested against Vendure <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">&gt;=3.5.0 &lt;4.0.0</code> — 3.5, 3.6 and 3.7 are all covered by CI. A boot-time compatibility check emits a non-fatal warning if <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">@vendure/core</code> is outside that range, so upgrades to a future 3.x are safe to try. The 4.0 line will be tested and re-declared once its changelog lands.'),
+         f'It supports Vendure <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">{html.escape(vendure_peer_range(p["pkg"]) or ">=3.5.0 <4.0.0")}</code> (its peer dependency)'
+         + (f', and current releases are built and tested against Vendure {html.escape(VERIFIED_VENDURE)} before they are published' if VERIFIED_VENDURE else '')
+         + '. A boot-time compatibility check emits a non-fatal warning if <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">@vendure/core</code> is outside that range, so upgrades to a future 3.x are safe to try. The 4.0 line will be tested and re-declared once its changelog lands.'),
     ]
     faq_html = '\n'.join(f'<details><summary>{html.escape(q)}</summary><p>{a}</p></details>' for q, a in faqs)
 
@@ -1618,9 +2430,14 @@ export const config: VendureConfig = {{
         proof_items.append('<a href="https://docs.vendure.io/plugins" class="vp-proof-item">Listed in the Vendure plugin directory</a>')
     elif p['slug'] in VENDURE_DIRECTORY_SUBMITTED:
         proof_items.append('<span class="vp-proof-item">Submitted to the Vendure plugin directory</span>')
-    proof_items.append('<span class="vp-proof-item">Vendure 3.5 – 3.7</span>')
+    peer = range_text(vendure_peer_range(p['pkg']))
+    if peer:
+        proof_items.append(f'<span class="vp-proof-item">Vendure {html.escape(peer)}'
+                           + (f', verified on {html.escape(VERIFIED_VENDURE)}' if VERIFIED_VENDURE else '') + '</span>')
     proof_items.append('<span class="vp-proof-item">MySQL · MariaDB · PostgreSQL</span>')
-    proof_items.append('<span class="vp-proof-item">AGPL source + commercial licence</span>')
+    repo = public_repo(p['pkg'])
+    proof_items.append(f'<a href="{repo}" class="vp-proof-item">AGPL source + commercial licence</a>' if repo
+                       else '<span class="vp-proof-item">AGPL-3.0 + commercial licence</span>')
     proof_html = '<div class="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink-600">' + ''.join(proof_items) + '</div>'
 
     tiers = TIERS.get(p['slug'])
@@ -1629,31 +2446,69 @@ export const config: VendureConfig = {{
         free_li = ''.join(f'<li>{html.escape(t)}</li>' for t in tiers[0])
         paid_li = ''.join(f'<li>{html.escape(t)}</li>' for t in tiers[1])
         tiers_html = f'''
-<section class="vp-section bg-white">
+<section class="vp-section bg-white pf-vd" id="tiers">
 <div class="container-page max-w-3xl">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">Free tier vs licensed</p>
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">Try the whole thing, keep the core for free.</h2>
-<p class="mt-4 text-ink-600">Install without a key and everything on the left works indefinitely. The 14-day trial switches the right-hand column on with your real traffic; a licence keeps it on.</p>
-<div class="mt-8 grid gap-6 md:grid-cols-2">
-<div class="rounded-lg border border-ink-200 bg-white p-6"><p class="text-xs font-semibold uppercase tracking-wider text-ink-500">Free tier (after the 14 days)</p><ul class="vp-tier-list mt-3">{free_li}</ul></div>
-<div class="rounded-lg border border-accent-300 bg-accent-50 p-6"><p class="text-xs font-semibold uppercase tracking-wider text-accent-700">First 14 days + licensed</p><ul class="vp-tier-list mt-3">{paid_li}</ul><a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-primary mt-5">Start 14-day free trial →</a></div>
+<p class="mt-4 text-ink-600">Install without a key and everything in the free tier works indefinitely. The 14-day trial switches the licensed features on with your real traffic; a licence keeps them on.</p>
+<div class="mt-8 grid gap-6 md:grid-cols-2" data-tabs data-tabs-label="Free tier or licensed">
+<div class="rounded-lg border border-ink-200 bg-white p-6" data-tab="Free tier" id="tiers-free"><p class="text-xs font-semibold uppercase tracking-wider text-ink-500">Free tier (after the 14 days)</p><ul class="vp-tier-list mt-3">{free_li}</ul></div>
+<div class="rounded-lg border border-accent-300 bg-accent-50 p-6" data-tab="First 14 days + licensed" id="tiers-licensed"><p class="text-xs font-semibold uppercase tracking-wider text-accent-700">First 14 days + licensed</p><ul class="vp-tier-list mt-3">{paid_li}</ul><a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-primary mt-5">Start 14-day free trial →</a></div>
 </div>
 </div>
 </section>
 '''
-    needs_migration = p['slug'] in NEEDS_MIGRATION
     step_count = 'Four' if needs_migration else 'Three'
+    mig_html, _, mig_name = migration_text(p)
     migration_step = f'''
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Run the migration</h3>
-<p class="mt-2 text-ink-600">The plugin registers its own entities. Generate and run the migration like any other:</p>
-<div class="vp-code mt-3" tabindex="0">yarn migration:generate Add{p['class']}Tables
-yarn migration:run</div>
+<p class="mt-2 text-ink-600">{mig_html}</p>
+{code_block(f"yarn migration:generate {mig_name}{chr(10)}yarn migration:run", 'migration commands', 'vp-code', 'mt-3', tag='div')}
 </div>''' if needs_migration else '''
 <div class="mt-10 rounded-lg border border-ink-200 bg-white p-4 text-sm text-ink-700"><strong>No migration to run.</strong> The plugin creates its tables on first boot and upgrades them in place on later versions.</div>'''
 
+    def pm_tabs(cls: str, wrap: str = '') -> str:
+        """npm / yarn / pnpm, one command each (the choice is remembered)."""
+        rows = [('npm', f'npm install {pkg}'), ('yarn', f'yarn add {pkg}'), ('pnpm', f'pnpm add {pkg}')]
+        return ''.join(f'<div data-tab="{pm}"><p class="hu-tab-h">{pm}</p>{code_block(cmd, pm + " command", cls, wrap, tag="pre" if cls == "hu-code" else "div")}</div>'
+                       for pm, cmd in rows)
+
+    install_box = f'''<!--email_off--><div class="pf-install hu-install" data-tabs data-tabs-group="pm" data-tabs-label="Install commands">
+<p class="hu-install-lead"><strong>Install on Vendure:</strong> add the package with npm, yarn or pnpm, then register <code>{p['class']}</code> in <code>vendure-config.ts</code>. <a href="#install" class="underline underline-offset-4">All steps</a></p>
+{pm_tabs('hu-code')}
+<div data-tab="Config" data-tab-nopersist><p class="hu-tab-h">Register it in vendure-config.ts</p>{code_block(config_block, 'vendure-config.ts snippet')}</div>
+</div><!--/email_off-->'''
+
+    rels = p.get('releases', [])
+    notes = release_notes(rels, f"{p['title']} for Vendure", f"/vendure-plugins/{p['slug']}/changelog/")
+    whats_new_html = f'''
+<section id="whats-new" class="vp-section bg-white pf-vd">
+<div class="container-page max-w-3xl">
+<p class="text-sm font-semibold uppercase tracking-wider text-accent-600">Changelog</p>
+<h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">What's new.</h2>
+<!--email_off-->{notes}<!--/email_off-->
+</div>
+</section>
+''' if notes else ''
+    version_href = '#whats-new' if notes else f"/vendure-plugins/{p['slug']}/changelog/"
+    nav = [('overview', 'Overview'), ('features', 'Features'), ('pricing', 'Pricing'), ('install', 'Install'), ('faq', 'FAQ')]
+    if notes:
+        nav.append(('whats-new', "What's new"))
+
+    periods = ['monthly', 'lifetime'] + (['annual'] if annual else [])
+    annual_plan = f'''
+<div class="hu-plan" data-plan="annual" data-plan-unit="a year after the 14 free days">
+<p class="text-xs uppercase tracking-wider text-accent-600 font-semibold">Annual · 14-day free trial</p>
+<p class="vp-price-num mt-2"><span class="vp-trial-num">14</span><small>days free</small></p>
+<p class="hu-plan-then">Then <strong class="hu-plan-price"><span data-annual-price data-plan-price>{html.escape(annual['GBP'])}</span>/year</strong></p>
+<p class="mt-1 text-sm text-ink-700">Card required at checkout; cancel any time before day 15 and pay nothing. Annual billing gets two months free.</p>
+<a href="{BUY_BASE}/{pkg_short}?plan=annual" class="btn btn-secondary w-full mt-5" style="text-align:center">Start 14-day free trial<span class="sr-only">, annual plan</span> →</a>
+<p class="vp-tiny-note">Card required. One trial per customer.</p>
+</div>''' if annual else ''
+
     body = f'''
-<section class="vp-hero pf-vd">
+<section class="vp-hero pf-vd" id="overview">
 <div class="container-page relative page-y">
 {crumbs([('Vendure plugins', '/vendure-plugins/'), (p['title'], None)])}
 <div class="flex items-center gap-4 flex-wrap" style="margin-bottom:20px">
@@ -1661,86 +2516,85 @@ yarn migration:run</div>
 <span class="pf-badge">For Vendure</span>
 </div>
 <h1 class="max-w-3xl text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])} for Vendure</h1>
-<p class="mt-6 max-w-2xl text-lg md:text-xl text-ink-600 leading-relaxed">{html.escape(p['tagline'])}</p>
+<p class="mt-6 max-w-2xl text-lg md:text-xl text-ink-600 leading-relaxed">{_md_inline(p['tagline'])}</p>
 {proof_html}
 <div class="mt-8 flex flex-wrap items-center gap-3">
 <a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-primary">Start 14-day free trial →</a>
 <a href="{BUY_BASE}/{pkg_short}?plan=lifetime" class="btn btn-secondary">Buy lifetime</a>
 <a href="#install" class="btn btn-secondary">Install</a>
 <a href="/vendure-plugins/{short_id}/docs/" class="btn btn-secondary">Read the manual</a>
-<a href="/vendure-plugins/{p['slug']}/changelog/" class="ml-auto inline-flex items-center" style="min-height:24px" title="See what changed in each release"><span class="sr-only">Changelog, version </span><!--email_off--><span class="text-xs text-ink-500 font-mono hover:underline" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span><!--/email_off--></a>
+<a href="{version_href}" class="hu-ver-link hu-ver-hero">What's new<span class="sr-only">, version</span> <!--email_off--><span class="hu-ver" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span><!--/email_off--></a>
 </div>
-<p class="pf-install"><strong>Install on Vendure:</strong> <!--email_off--><code>npm install {p['pkg']}</code><!--/email_off--> (or yarn / pnpm), then register <code>{p['class']}</code> in <code>vendure-config.ts</code>. <a href="#install" class="underline underline-offset-4">All steps</a></p>
+{install_box}
 </div>
 </section>
-
-<section class="vp-section bg-white">
+{section_nav(nav, 'vd')}
+<section class="vp-section bg-white" id="features">
 <div class="container-page">
 <div class="vp-grid-2">
 <div>
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">What it does</p>
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">Built for production from day one.</h2>
-<p class="mt-5 text-lg text-ink-700 leading-relaxed">{html.escape(p['description'])}</p>
+<p class="mt-5 text-lg text-ink-700 leading-relaxed">{_md_inline(p['description'])}</p>
 <div class="mt-10">
 {feats_html}
 </div>
 </div>
 {pricing_override_js}
-<aside class="vp-pricing-aside">
-<div class="vp-price-card">
+<aside class="vp-pricing-aside pf-vd" id="pricing" aria-labelledby="pricing-title">
+<h2 class="sr-only" id="pricing-title">Pricing</h2>
+<div class="vp-price-card featured hu-plans" data-period>
+{period_switch(periods)}
+<div class="hu-plan" data-plan="monthly" data-plan-unit="a month after the 14 free days">
 <p class="text-xs uppercase tracking-wider text-accent-600 font-semibold">Monthly · 14-day free trial</p>
 <p class="vp-price-num mt-2"><span class="vp-trial-num">14</span><small>days free</small></p>
-<p class="mt-2 text-sm text-ink-700">Then <span data-monthly-price>{price_mo_gbp}</span>/month. Card required at checkout; cancel any time before day 15 and pay nothing.</p>
-<a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-secondary w-full mt-5" style="text-align:center">Start 14-day free trial →</a>
+<p class="hu-plan-then">Then <strong class="hu-plan-price"><span data-monthly-price data-plan-price>{price_mo_gbp}</span>/month</strong></p>
+<p class="mt-1 text-sm text-ink-700">Card required at checkout; cancel any time before day 15 and pay nothing.</p>
+<a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-secondary w-full mt-5" style="text-align:center">Start 14-day free trial<span class="sr-only">, monthly plan</span> →</a>
 <p class="vp-tiny-note">Card required. One trial per customer.</p>
-</div>
-<div class="vp-price-card featured">
+</div>{annual_plan}
+<div class="hu-plan" data-plan="lifetime" data-plan-unit="one-off">
 <p class="text-xs uppercase tracking-wider text-accent-600 font-semibold">Lifetime · Best value</p>
-<p class="vp-price-num mt-2" data-lifetime-price>{price_lt_gbp}</p>
+<p class="vp-price-num mt-2" data-lifetime-price data-plan-price>{price_lt_gbp}</p>
 <p class="mt-2 text-sm text-ink-600">One-off. Never expires. 12 months of updates.</p>
 <a href="{BUY_BASE}/{pkg_short}?plan=lifetime" class="btn btn-primary w-full mt-5" style="text-align:center">Buy lifetime →</a>
 </div>
+</div>
 <p data-approx-note style="display:none" class="mt-3 text-xs text-ink-500">Prices marked ≈ are estimates — you'll be billed in £ GBP and your bank converts at its own rate.</p>
-<p class="mt-4 text-xs text-ink-500 leading-relaxed">Payments processed by Stripe. VAT applied where applicable. 30-day refund if it doesn't fit your stack. By proceeding you accept our <a href="/legal/terms/" class="underline">Terms</a> and <a href="/legal/privacy/" class="underline">Privacy Policy</a>.</p>
+<p class="mt-4 text-xs text-ink-500 leading-relaxed">Payments processed by Stripe. VAT applied where applicable. 30-day refund on lifetime licences if it doesn't fit your stack. By proceeding you accept our <a href="/legal/terms/" class="underline">Terms</a> and <a href="/legal/privacy/" class="underline">Privacy Policy</a>.</p>
 </aside>
 </div>
 </div>
 </section>
 
-<section id="install" class="vp-section bg-ink-50">
+<section id="install" class="vp-section bg-ink-50 pf-vd">
 <div class="container-page max-w-3xl" style="counter-reset: step;">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">Install</p>
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">{step_count} steps, five minutes.</h2>
-
+<!--email_off-->
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Add the package</h3>
 <p class="mt-2 text-ink-600">Or run the one-line installer that does steps 1–3 for you:</p>
-<div class="vp-code mt-3" tabindex="0">curl -sSL https://huloglobal.com/vendure-plugins/{short_id}/install.sh | bash</div>
+{code_block(f'curl -sSL https://huloglobal.com/vendure-plugins/{short_id}/install.sh | bash', 'installer command', 'vp-code', 'mt-3', tag='div')}
 <p class="mt-3 text-sm text-ink-500">Prefer to do it by hand?</p>
-<div class="vp-code mt-2" tabindex="0">yarn add {p['pkg']}
-<span class="vp-comment"># or</span> npm install {p['pkg']}
-<span class="vp-comment"># or</span> pnpm add {p['pkg']}</div>
+<div class="hu-tabs mt-2" data-tabs data-tabs-group="pm" data-tabs-label="Package manager">
+{pm_tabs('vp-code')}
+</div>
 </div>
 
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Register it</h3>
 <p class="mt-2 text-ink-600">In your <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">vendure-config.ts</code>:</p>
-<div class="vp-code mt-3" tabindex="0">{config_block}</div>
+{code_block(config_block, 'vendure-config.ts snippet', 'vp-code', 'mt-3', tag='div')}
 </div>
 
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Compile the admin UI</h3>
 <p class="mt-2 text-ink-600">Add the extension to your <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">compileUiExtensions</code> call so the plugin's page appears in the admin:</p>
-<div class="vp-code mt-3" tabindex="0"><span class="vp-comment">// compile-admin-ui.ts</span>
-import {{ compileUiExtensions }} from <span class="vp-str">'@vendure/ui-devkit/compiler'</span>;
-import {{ <span class="vp-key">{p['class']}</span> }} from <span class="vp-str">'{p['pkg']}'</span>;
-
-compileUiExtensions({{
-  outputPath: path.join(__dirname, <span class="vp-str">'admin-ui'</span>),
-  extensions: [<span class="vp-key">{p['class']}</span>.uiExtensions],
-}});</div>
+{code_block(compile_block, 'compile-admin-ui.ts snippet', 'vp-code', 'mt-3', tag='div')}
 </div>
 {migration_step}
+<!--/email_off-->
 
 <div class="mt-10 rounded-lg border border-ink-200 bg-white p-6">
 <p class="text-sm text-ink-700"><strong>That's it.</strong> Restart Vendure and the plugin's page is in the admin with <strong>every feature on for 14 days</strong> — no card, no key. To keep it all on afterwards, open the page and click <strong>Subscribe</strong> (first charge when the 14 days end) — the key installs itself, no <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">.env</code> edit, no redeploy.</p>
@@ -1749,7 +2603,7 @@ compileUiExtensions({{
 </section>
 
 {tiers_html}
-<section class="vp-section bg-white">
+<section class="vp-section bg-white" id="endpoints">
 <div class="container-page max-w-3xl">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">HTTP endpoints</p>
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">Every route exposed.</h2>
@@ -1761,15 +2615,15 @@ compileUiExtensions({{
 </div>
 </section>
 
-<section class="vp-section bg-ink-50">
+<section class="vp-section bg-ink-50" id="faq">
 <div class="container-page max-w-3xl">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">FAQ</p>
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900 mb-8">Common questions.</h2>
-<div class="vp-faq">{faq_html}</div>
+{EXPAND_BAR}<div class="vp-faq">{faq_html}</div>
 </div>
 </section>
-
-<section class="vp-section bg-white">
+{whats_new_html}
+<section class="vp-section bg-white border-t border-ink-100">
 <div class="container-page max-w-2xl text-center">
 <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-ink-900">Ready to ship?</h2>
 <p class="mt-5 text-lg text-ink-600 leading-relaxed">Install in five minutes, run the trial on real traffic, keep it if it earns its place.</p>
@@ -1783,7 +2637,7 @@ compileUiExtensions({{
 '''
     return header(f"{p['title']} — Vendure plugin by Hulo Global",
                   f"https://huloglobal.com/vendure-plugins/{p['slug']}/",
-                  p['tagline']) + platform_band('vd', p['slug'], p['title'], edition_title('wp', p['slug'], p['title'])) + body + FOOTER
+                  p['tagline'], secnav=True) + platform_band('vd', p['slug'], p['title'], edition_title('wp', p['slug'], p['title'])) + body + FOOTER
 
 
 CHANGELOG_STYLE = """
@@ -1809,18 +2663,24 @@ CHANGELOG_STYLE = """
   padding: .18rem .55rem; border-radius: 999px; }
 .cl-badge { display: inline-block; font-size: .7rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: .07em; padding: .22rem .6rem; border-radius: 999px; margin: 1.1rem 0 .1rem; }
-.cl-badge.added      { color: #15803d; background: #f0fdf4; border: 1px solid #bbf7d0; }
-.cl-badge.changed    { color: #b45309; background: #fffbeb; border: 1px solid #fde68a; }
-.cl-badge.fixed      { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; }
-.cl-badge.security   { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; }
-.cl-badge.removed, .cl-badge.deprecated, .cl-badge.other
-                     { color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; }
+/* Kind modifiers are is-*: a bare "fixed" is Tailwind's position: fixed. */
+.cl-badge.is-added      { color: #15803d; background: #f0fdf4; border: 1px solid #bbf7d0; }
+.cl-badge.is-changed    { color: #b45309; background: #fffbeb; border: 1px solid #fde68a; }
+.cl-badge.is-fixed      { color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; }
+.cl-badge.is-security   { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; }
+.cl-badge.is-removed, .cl-badge.is-deprecated, .cl-badge.is-other
+                        { color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; }
 .cl-list { margin: .55rem 0 0; padding: 0; list-style: none; }
 .cl-list li { display: block; position: relative; padding-left: 1.15rem;
   margin: .55rem 0; color: #334155; font-size: .975rem; line-height: 1.7; }
 .cl-list li::before { content: ""; position: absolute; left: 0; top: .68em;
   width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; }
 .cl-list li strong { color: #0f1419; font-weight: 650; }
+.cl-intro { margin: .9rem 0 0; color: #334155; font-size: .975rem; line-height: 1.7; }
+.cl-intro code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em;
+  background: #f1f5f9; border: 1px solid #e2e8f0; padding: .08em .35em; border-radius: 5px; }
+.cl-list li .hu-tag { margin-right: .2rem; vertical-align: .08em; }
+.cl-head .hu-pill { align-self: center; }
 .cl-list li code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: #f1f5f9; border: 1px solid #e2e8f0;
   padding: .08em .35em; border-radius: 5px; overflow-wrap: anywhere; }
@@ -1843,28 +2703,26 @@ def pretty_date(iso: str) -> str:
     return f"{int(m.group(3))} {MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
 
 
-def changelog_page(p, releases):
-    latest = releases[0] if releases else None
+def changelog_page(p):
+    rels = p.get('releases', [])
+    latest = rels[0] if rels else None
     rel_html = []
-    for idx, r in enumerate(releases):
+    for idx, r in enumerate(rels):
         secs = []
-        for heading, items in r['sections']:
-            kind = heading.strip().lower()
-            if kind not in ('added', 'changed', 'fixed', 'security', 'removed', 'deprecated'):
-                kind = 'other'
-            lis = '\n'.join(f'<li>{_md_inline(i)}</li>' for i in items)
+        for g in r['groups']:
             secs.append(
-                f'<span class="cl-badge {kind}">{html.escape(heading)}</span>'
-                f'<ul class="cl-list">{lis}</ul>')
+                f'<div data-grp><span class="cl-badge is-{g["cls"]}">{html.escape(g["label"])}</span>'
+                f'{group_html(g, "cl-list", tag_each=False)}</div>')
+        intro = ''.join(f'<p class="cl-intro" data-cl-intro>{t}</p>' for t in r['intro'])
         latest_chip = '<span class="cl-latest">Latest</span>' if idx == 0 else ''
         rel_html.append(f"""
-<article class="cl-release" id="v{html.escape(r['version'])}">
+<article class="cl-release" id="v{html.escape(r['version'])}" data-rel>
   <div class="cl-head">
     <h2 class="cl-version">v{html.escape(r['version'])}</h2>
-    <span class="cl-date">{html.escape(pretty_date(r['date']))}</span>
-    {latest_chip}
+    <span class="cl-date"><time datetime="{html.escape(r['date'])}">{html.escape(pretty_date(r['date']))}</time></span>
+    {new_pill(r['date'])}{latest_chip}
   </div>
-  {''.join(secs)}
+  {intro}{''.join(secs)}
 </article>""")
     latest_line = (
         f"Latest release: <span class='font-mono'>v{html.escape(latest['version'])}</span> — {html.escape(pretty_date(latest['date']))}."
@@ -1875,15 +2733,16 @@ def changelog_page(p, releases):
 {crumbs([('Vendure plugins', '/vendure-plugins/'), (p['title'], f"/vendure-plugins/{p['slug']}/"), ('Changelog', None)])}
 <span class="pf-badge">For Vendure</span>
 <h1 class="mt-4 max-w-3xl text-4xl sm:text-5xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])} for Vendure: changelog</h1>
-<p class="mt-4 max-w-2xl text-lg text-ink-600 leading-relaxed">Every release of <!--email_off--><code class="font-mono text-base">{html.escape(p['pkg'])}</code><!--/email_off-->. {latest_line}</p>
+<p class="mt-4 max-w-2xl text-lg text-ink-600 leading-relaxed">Release notes for <!--email_off--><code class="font-mono text-base">{html.escape(p['pkg'])}</code><!--/email_off-->. {latest_line}</p>
 <div class="mt-6 flex flex-wrap items-center gap-3">
 <a href="/vendure-plugins/{p['slug']}/" class="btn btn-secondary">Plugin page</a>
 <a href="/vendure-plugins/{p['slug']}/docs/" class="btn btn-secondary">Manual</a>
 </div>
 </div>
 </section>
-<section class="vp-section" style="background:#f8fafc">
-<div class="container-page">
+<section class="vp-section pf-vd" style="background:#f8fafc">
+<div class="container-page" data-changelog>
+{kind_filter(rels, 'cl', 'cl-tools')}
 <div class="cl-wrap"><div class="cl-rail">
 <!--email_off-->
 {''.join(rel_html)}
@@ -1945,8 +2804,8 @@ fi
 
 echo
 if [[ "{needs_migration}" == "1" ]]; then
-  echo "→ Generate + run the migration (this plugin registers entities):"
-  echo "  yarn migration:generate Add${{CLASS}}Tables"
+  echo "→ Generate + run the migration ({migration_why}):"
+  echo "  yarn migration:generate {migration_name}"
   echo "  yarn migration:run"
 else
   echo "→ No migration needed: tables are created on first boot."
@@ -1970,6 +2829,8 @@ def install_sh(p):
         pkg_short=p['pkg'].split('/')[-1],
         slug=p['slug'],
         needs_migration='1' if p['slug'] in NEEDS_MIGRATION else '0',
+        migration_why=migration_text(p)[1],
+        migration_name=migration_text(p)[2],
     )
 
 
@@ -2084,6 +2945,30 @@ ROADMAP_SCRIPT = """
 </script>
 """
 
+# The feature-request API (ELITE backend) files a request under its plugin
+# only for the slugs it knows, anything else as 'general': the form offers
+# exactly those, read from the controller at build time.
+FEATURE_REQUEST_TS = Path(_os.environ.get(
+    'HULO_FEATURE_REQUEST_TS', '/root/ee.software/src/plugins/ees/api/feature-request.controller.ts'))
+
+
+def roadmap_plugins() -> list[dict]:
+    try:
+        src = FEATURE_REQUEST_TS.read_text(encoding='utf-8')
+        m = _re.search(r'const PLUGINS\s*=\s*new Set\(\[(.*?)\]\)', src, _re.S)
+        known = set(_re.findall(r"'([a-z0-9-]+)'", m.group(1))) if m else None
+    except OSError:
+        known = None
+    if known is None:
+        print(f'  WARNING {FEATURE_REQUEST_TS}: plugin list not found, so the roadmap form offers every plugin')
+        return list(PLUGINS)
+    left_out = [p['title'] for p in PLUGINS if p['slug'] not in known]
+    if left_out:
+        print(f"  note roadmap: the feature-request API does not take {', '.join(left_out)} yet "
+              f"(PLUGINS in {FEATURE_REQUEST_TS.name}), so the form leaves them out")
+    return [p for p in PLUGINS if p['slug'] in known]
+
+
 def roadmap_page():
     head = header(
         'Feature roadmap & requests — HULO Vendure plugins',
@@ -2113,11 +2998,7 @@ def roadmap_page():
 <label for="rm-plugin">Which plugin?</label>
 <select id="rm-plugin" name="plugin">
 <option value="general">General / a new plugin</option>
-<option value="email-tracking">Email Tracking</option>
-<option value="geo-block">Geo Block</option>
-<option value="visitor-analytics">Visitor Analytics</option>
-<option value="fraud-prevention">Fraud Prevention</option>
-</select>
+""" + ''.join(f'<option value="{p["slug"]}">{html.escape(p["title"])}</option>\n' for p in sorted(roadmap_plugins(), key=lambda p: p['title'])) + """</select>
 </div>
 <div class="rm-field">
 <label for="rm-title">Your idea, in a sentence</label>
@@ -2151,6 +3032,33 @@ def roadmap_page():
 
 
 
+def npm_published_versions(pkg: str) -> list[str] | None:
+    try:
+        out = subprocess.check_output(['npm', 'view', pkg, 'versions', '--json'],
+                                      stderr=subprocess.DEVNULL, timeout=10)
+        v = json.loads(out.decode() or '[]')
+        return [v] if isinstance(v, str) else list(v)
+    except Exception:
+        return None
+
+
+def check_changelog_against_npm(pkg: str, logged: list[str], published: str) -> None:
+    """Warn (never fail) when CHANGELOG.md and npm disagree: a version on npm,
+    up to the published one, with no changelog entry, or an entry for a
+    version npm never published. The pages mirror the changelog either way;
+    the fix belongs in the package's CHANGELOG.md."""
+    on_npm = npm_published_versions(pkg)
+    if on_npm is None or not published:
+        return
+    upto = [v for v in on_npm if _semver(v) <= _semver(published)]
+    missing = [v for v in upto if v not in logged]
+    extra = [v for v in logged if _semver(v) <= _semver(published) and v not in on_npm]
+    if missing:
+        print(f"  WARNING {pkg}: published on npm but not in CHANGELOG.md: {', '.join(missing)}")
+    if extra:
+        print(f"  WARNING {pkg}: in CHANGELOG.md but never published on npm: {', '.join(extra)}")
+
+
 def main():
     # Refresh the version numbers from npm. Falls back to the hardcoded
     # value when offline so the build always works.
@@ -2160,6 +3068,14 @@ def main():
             if latest != p['version']:
                 print(f"  {p['pkg']}: {p['version']} → {latest}")
             p['version'] = latest
+
+    # Release notes, once per plugin: CHANGELOG.md up to the published version.
+    for p in PLUGINS:
+        raw = parse_changelog(p['pkg'])
+        if raw and raw[0]['version'] != p['version']:
+            print(f"  WARNING {p['pkg']}: changelog top {raw[0]['version']} != published {p['version']}")
+        p['releases'] = published_only(vendure_releases(raw), p['version'], p['pkg'])
+        check_changelog_against_npm(p['pkg'], [r['version'] for r in raw], p['version'])
 
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'index.html').write_text(index_page(), encoding='utf-8')
@@ -2178,12 +3094,9 @@ def main():
         d = OUT / p['slug']
         d.mkdir(exist_ok=True)
         (d / 'index.html').write_text(plugin_page(p), encoding='utf-8')
-        releases = parse_changelog(p['pkg'])
-        if releases and releases[0]['version'] != p['version']:
-            print(f"  WARNING {p['pkg']}: changelog top {releases[0]['version']} != published {p['version']}")
         cl = d / 'changelog'
         cl.mkdir(exist_ok=True)
-        (cl / 'index.html').write_text(changelog_page(p, releases), encoding='utf-8')
+        (cl / 'index.html').write_text(changelog_page(p), encoding='utf-8')
         sh = d / 'install.sh'
         sh.write_text(install_sh(p), encoding='utf-8')
         sh.chmod(0o755)
@@ -2199,11 +3112,13 @@ def main():
         for sub in src_static.iterdir():
             dest = OUT / sub.name
             if sub.is_dir():
-                shutil.copytree(sub, dest, dirs_exist_ok=True)
+                shutil.copytree(sub, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(*NOT_SERVED))
             else:
                 shutil.copy2(sub, dest)
 
-    print(f'Wrote {len(PLUGINS) + 1} pages + {len(PLUGINS)} install scripts + versions.json to {OUT}')
+    emit_assets()
+    print(f'Wrote {len(PLUGINS) + 1} pages + {len(PLUGINS)} install scripts + versions.json to {OUT}'
+          f' (build date {BUILD_DATE.isoformat()} for the "New" release pills)')
 
 
 if __name__ == '__main__':

@@ -1,25 +1,19 @@
 name: refresh-versions
 
-# Rebuild + redeploy huloglobal.com/vendure-plugins/ so the version chips
-# on the catalog + product pages match what npm currently publishes.
+# Build check for huloglobal.com/vendure-plugins/: runs the Python builders
+# so a broken build.py / build_manuals.py / build_legal.py shows up as a red
+# X. It does NOT deploy, and must not: a checkout of this repository alone
+# lacks what deploy.sh builds with (../packages for the changelogs and
+# package data, the licence-server file for annual prices, the WordPress
+# plugins repo, the main site's theme for pages.css and the thumbnails), so
+# anything built here is a partial site. Deploy from the build box with
+# ./deploy.sh (see the README), which runs every builder.
 #
-# Fires on:
+# Runs on:
 #   - push to main (build.py / build_manuals.py / build_legal.py changes)
-#   - manual workflow_dispatch (belt-and-braces "kick it now")
-#   - repository_dispatch of type 'plugin-published' — every plugin's
-#     publish.yml sends this after `npm publish` succeeds so a fresh
-#     version reflects on huloglobal.com within minutes
-#   - hourly cron (catches any missed dispatches; the build.py script
-#     already reads live versions from npm at build time, so a scheduled
-#     run is enough to keep drift under an hour)
-#
-# Required repo secrets (Settings → Secrets and variables → Actions):
-#   DEPLOY_SSH_KEY   — private key with SSH access to the huloglobal CDN
-#   DEPLOY_HOST      — SSH host (usually 192.168.1.33 on the private LAN)
-#   DEPLOY_USER      — SSH user (usually root)
-#   DEPLOY_PATH      — docroot (defaults to /var/www/huloglobal/current/dist/client)
-# If any of these are missing the workflow builds but skips the deploy step
-# — safe no-op rather than a red X on every scheduled run.
+#   - manual workflow_dispatch
+#   - repository_dispatch of type 'plugin-published' (sent by each
+#     plugin's publish.yml after `npm publish`)
 
 on:
   push:
@@ -32,15 +26,13 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types: [plugin-published]
-  schedule:
-    - cron: '0 * * * *'    # top of every hour, UTC
 
 concurrency:
   group: refresh-versions
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +48,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build (reads live versions from npm)
+      - name: Build check (reads live versions from npm; nothing is deployed)
         run: |
           python3 build.py
           python3 build_manuals.py
@@ -64,48 +56,3 @@ jobs:
 
       - name: Show baked versions
         run: cat dist/vendure-plugins/versions.json
-
-      - name: Deploy over SSH (skipped if secrets not set)
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_HOST:    ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER:    ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PATH:    ${{ secrets.DEPLOY_PATH }}
-        run: |
-          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ]; then
-            echo "::warning::deploy secrets not set — build finished but not deployed"
-            exit 0
-          fi
-          DEPLOY_PATH="${DEPLOY_PATH:-/var/www/huloglobal/current/dist/client}"
-          mkdir -p ~/.ssh
-          echo "$DEPLOY_SSH_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          tar czf /tmp/vp-pages.tgz -C dist vendure-plugins legal
-          scp -i ~/.ssh/id_deploy /tmp/vp-pages.tgz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/vp-pages.tgz"
-          ssh -i ~/.ssh/id_deploy "$DEPLOY_USER@$DEPLOY_HOST" "
-            set -e
-            rm -rf $DEPLOY_PATH/vendure-plugins $DEPLOY_PATH/legal
-            tar xzf /tmp/vp-pages.tgz -C $DEPLOY_PATH
-            chown -R huloglobal:huloglobal $DEPLOY_PATH/vendure-plugins $DEPLOY_PATH/legal
-            chmod +x $DEPLOY_PATH/vendure-plugins/*/install.sh
-            rm /tmp/vp-pages.tgz
-          "
-
-      - name: Verify live (only if deployed)
-        if: env.DEPLOY_HOST != ''
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-        run: |
-          for url in \
-            https://huloglobal.com/vendure-plugins/ \
-            https://huloglobal.com/vendure-plugins/versions.json \
-            https://huloglobal.com/vendure-plugins/email-tracking/ \
-            https://huloglobal.com/vendure-plugins/geo-block/ \
-            https://huloglobal.com/vendure-plugins/visitor-analytics/
-          do
-            status=$(curl -sSI -m 8 "$url" | head -1 | tr -d '\r')
-            echo "  $status  $url"
-          done
-          echo "Live versions:"
-          curl -sS https://huloglobal.com/vendure-plugins/versions.json | head -20

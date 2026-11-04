@@ -37,6 +37,8 @@ BOX=root@192.168.1.33
 ROOT=/var/www/huloglobal/current/dist/client
 
 echo "→ Build"
+# HULO_BUILD_DATE=YYYY-MM-DD ./deploy.sh measures the changelog "New" pills
+# from that day instead of today.
 python3 build.py
 python3 build_manuals.py
 python3 build_legal.py
@@ -115,9 +117,11 @@ fi
 
 echo
 echo "→ Git"
-if ! git diff --quiet -- build.py build_manuals.py build_legal.py build_wordpress.py build_css.mjs deploy.sh README.md 2>/dev/null \
-   || ! git diff --cached --quiet -- build.py build_manuals.py build_legal.py build_wordpress.py build_css.mjs deploy.sh README.md 2>/dev/null; then
-    git add build.py build_manuals.py build_legal.py build_wordpress.py build_css.mjs deploy.sh README.md 2>/dev/null || true
+# static/ holds the shared client code (hulo-ui.js / hulo-ui.css) and logos;
+# git status (not git diff) so new, untracked files there are committed too.
+SOURCES="build.py build_manuals.py build_legal.py build_wordpress.py build_css.mjs build_thumbs.mjs deploy.sh README.md static .github"
+if [[ -n "$(git status --porcelain -- $SOURCES 2>/dev/null)" ]]; then
+    git add $SOURCES 2>/dev/null || true
     if [[ -z "$MSG" ]]; then
         MSG="Deploy marketing site — $(date -u +%Y-%m-%d)"
     fi
