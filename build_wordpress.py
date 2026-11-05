@@ -543,7 +543,7 @@ def plugin_page(p: dict) -> str:
 <div class="hu-plan" data-plan="lifetime" data-plan-unit="one-off">
 <p class="text-xs font-semibold uppercase tracking-wider text-accent-700">Pro, lifetime</p>
 <p class="vp-price-num mt-2"><span data-lifetime-price data-plan-price>{html.escape(gbp['lifetime'])}</span></p>
-<p class="mt-2 text-sm text-ink-700">One payment for one site. Never expires; includes 12 months of updates.</p>
+<p class="mt-2 text-sm text-ink-700">One payment for one site. Never expires; free updates for the lifetime of the plugin.</p>
 <a href="{buy}?plan=lifetime" class="btn btn-secondary mt-5">Buy lifetime<span class="sr-only"> licence for {pro_name}</span></a>
 </div>'''
     periods = ['monthly', 'lifetime'] + (['annual'] if annual else [])
