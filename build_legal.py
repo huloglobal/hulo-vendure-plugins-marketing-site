@@ -14,6 +14,7 @@ US template.  An English-jurisdiction commercial solicitor should still
 review them before any material change to the business.
 """
 from pathlib import Path
+import json
 import html
 
 HERE = Path(__file__).parent
@@ -595,6 +596,10 @@ def main():
         d = OUT / slug
         d.mkdir(exist_ok=True)
         (d / 'index.html').write_text(page(slug, title, desc, body), encoding='utf-8')
+    # The licence server reads this to show and record the version on the buy
+    # pages (licence-server.controller.ts currentTermsVersion), so publishing
+    # the Terms is all it takes to move them in lock-step.
+    (OUT / 'terms' / 'version.json').write_text(json.dumps({'version': TERMS_VERSION, 'effective': TERMS_VERSION}) + '\n', encoding='utf-8')
     print(f'Wrote 5 legal pages to {OUT} (terms version {TERMS_VERSION})')
 
 

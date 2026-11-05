@@ -131,6 +131,7 @@ for url in \
     "https://huloglobal.com/legal/privacy/" \
     "https://huloglobal.com/legal/cookies/" \
     "https://huloglobal.com/legal/acceptable-use/" \
+    "https://huloglobal.com/legal/terms/version.json" \
     "https://huloglobal.com/vendure-plugins/sitemap.xml" \
     "https://huloglobal.com/wordpress-plugins/sitemap.xml" \
     "https://huloglobal.com/legal/sitemap.xml"
