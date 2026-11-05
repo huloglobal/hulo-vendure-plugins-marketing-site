@@ -126,30 +126,19 @@ EMAIL_TRACKING_MANUAL = {
     'title_short': 'Email Tracking',
     'sections': [
         ('overview', 'Overview', '''
-<p><strong>Email Tracking</strong> logs every transactional email your Vendure server sends. It wraps the <code>@vendure/email-plugin</code> sender so opens and clicks are tracked automatically, plus exposes a service for ad-hoc sends from your own plugin code.</p>
-<p>Data captured per email:</p>
+<p><strong>Email Tracking</strong> logs every transactional email your Vendure server sends. It wraps the <code>@vendure/email-plugin</code> sender, so opens and clicks are tracked without per-handler wiring, and your own plugin code can send through <code>EmailTrackingService</code> for the same tracking.</p>
+<p>What it records:</p>
 <ul>
-<li>Send: recipient, subject, type, related order / customer / invoice, the SMTP response, the SMTP <code>messageId</code>.</li>
-<li>Opens: raw per-open history — every pixel fire produces a row (never deduplicated) with timestamp, IP, user-agent, parsed client (Gmail web, Outlook desktop, Apple Mail iOS …), and a classification (`human_likely` / `machine_likely` / `unknown`) with reason codes.</li>
-<li>Clicks: raw per-click history with timestamp, IP, user-agent, and — critically — <em>which specific link was clicked</em>: <code>link_type</code>, <code>link_label</code>, <code>link_text</code>, <code>link_index</code>, <code>template_section</code>, destination host + path.</li>
-<li>Bounces / complaints: status update + auto-add to the suppression list.</li>
+<li><strong>Each send:</strong> recipient, subject, type, the related order, customer and invoice, the SMTP reply and Message-ID, in the <code>email_log</code> table.</li>
+<li><strong>Every event, raw:</strong> one <code>email_event</code> row per send, delivery, deferral, bounce, complaint, unsubscribe, open and click, never deduplicated, with its source, time, hashed IP, approximate location, email client and classification.</li>
+<li><strong>Classification:</strong> each open and click is <code>human_likely</code>, <code>machine_likely</code> or <code>unknown</code>, with reason codes such as <code>gmail-proxy</code>, <code>ampp</code> (Apple Mail Privacy Protection), <code>safelinks</code> and <code>bot-ua</code>. It is advisory: nothing is blocked.</li>
+<li><strong>Delivery from your provider:</strong> Postmark, SendGrid, Mailgun and Amazon SES webhooks, each verified with the provider's own signature scheme.</li>
+<li><strong>Bounces and complaints:</strong> a status update, and the address joins the suppression list.</li>
 </ul>
-
-<div class="callout">
-<strong>What's new in 0.7.0</strong>
-<ul style="margin:8px 0 0 0;">
-<li><strong>Per-link tokenisation.</strong> Every clickable link in every email gets a random 32-byte token. The click endpoint identifies exactly which link was clicked rather than merely "a link was clicked."</li>
-<li><strong>Sensitive-link redaction.</strong> Password-reset, invoice-access and licence-delivery URLs are flagged <code>isSensitive: true</code>; the raw destination never lands in the event log — only the URL hash + host.</li>
-<li><strong>Event classification.</strong> Built-in classifier scores every open + click as human-likely / machine-likely / unknown with reason chips: <code>gmail-proxy</code>, <code>ampp</code> (Apple Mail Privacy Protection), <code>safelinks</code>, <code>outlook-proxy</code>, <code>proofpoint</code>, <code>mimecast</code>, <code>barracuda</code>, <code>datacentre</code>, <code>vpn</code>, <code>bot-ua</code>, <code>headless</code>, <code>scanner-ua</code>. Raw events still recorded — classification is advisory.</li>
-<li><strong>IP enrichment.</strong> Async geo + ASN + VPN / proxy / datacentre flag population via <code>ip-api.com</code> (default, no key) or <code>ipinfo.io</code>. Never blocks event recording.</li>
-<li><strong>Provider webhook receiver.</strong> Ingest delivered / bounced / deferred / dropped / complaint / open / click events from Postmark, SendGrid, Mailgun and Amazon SES (via SNS). Per-provider signature verification; idempotent within 24h.</li>
-<li><strong>Order Activity History panel.</strong> Chronological timeline of every event with classification badges, filters, pagination, CSV export, PDF Evidence Report and elevated-permission full export.</li>
-<li><strong>Graceful degradation.</strong> No runtime import from invoice / support-ticket / order plugins. Hosts without those simply never pass the id; entity foreign-id columns are plain nullable ints.</li>
-</ul>
-</div>
+<p>Release notes for every version are on the <a href="/vendure-plugins/email-tracking/changelog/">changelog page</a>.</p>
 '''),
         ('install', 'Install', '''
-<p>One package, one line of config, one migration. The fastest way is the bundled installer:</p>
+<p>One package, one line of config, and one new table. The fastest way is the bundled installer:</p>
 <div class="doc-code">curl -sSL https://huloglobal.com/vendure-plugins/email-tracking/install.sh | bash</div>
 <p>Or by hand:</p>
 <div class="doc-code"><span class="c"># 1. Install</span>
@@ -163,6 +152,7 @@ export const config: VendureConfig = {
     <span class="k">EmailTrackingPlugin</span>.init({
       publicBaseUrl: <span class="s">'https://shop.example.com'</span>,
       licenceKey: process.env.<span class="k">HULO_LICENCE_KEY_EMAIL_TRACKING</span>,
+      bounceWebhookSecret: process.env.<span class="k">HULO_BOUNCE_WEBHOOK_SECRET</span>, <span class="c">// optional</span>
     }),
     <span class="c">// also pass TrackingEmailSender to the @vendure/email-plugin:</span>
     EmailPlugin.init({
@@ -172,13 +162,14 @@ export const config: VendureConfig = {
   ],
 };
 
-<span class="c"># 3. Generate + run migration</span>
+<span class="c"># 3. Generate + run the migration</span>
 yarn migration:generate AddEmailTrackingTables
 yarn migration:run</div>
-<p>Restart Vendure. The <strong>Email Log</strong> tab appears in the admin nav immediately.</p>
+<p>Restart Vendure and compile the admin UI. The <strong>Email Log</strong> page appears under Customers, every order page gets an <strong>Email activity</strong> panel, and every customer page an <strong>Emails</strong> tab.</p>
+<div class="callout"><strong>Upgrading from 0.15.x:</strong> 0.16 adds one table, <code>email_event</code>. With <code>synchronize: false</code>, generate a migration or run the DDL in the package README ("Upgrading to 0.16.0"). Until the table exists the plugin keeps working as 0.15.4 and logs a warning.</div>
 '''),
         ('admin-ui', 'Admin UI tour', '''
-<p>The Email Log page is mounted at <code>/admin/extensions/email-log</code> (or via the side nav).</p>
+<p>The Email Log page is mounted at <code>/admin/extensions/email-log</code> (Customers → Email Log).</p>
 <div class="screenshot">''' + svg_panel('Email Log — list view', [
     '== Status totals',
     '::All 1247 | Sent 1198 | Failed 12 | Deferred 8 | Bounced 14 | Opens 540 | Clicks 87',
@@ -192,36 +183,84 @@ yarn migration:run</div>
 ], height=410) + '''
 <div class="screenshot-caption">List view — colour-coded status pills, per-row open/click counts, click any row for the timeline.</div>
 </div>
-<p>Click <strong>Details</strong> on any row to expand the timeline. You'll see:</p>
+<p>Click <strong>Details</strong> on any row to expand it. You'll see:</p>
 <ul>
-<li><strong>Header block</strong> — From / To / BCC / subject / context</li>
-<li><strong>SMTP block</strong> — message-id, SMTP response, any error message</li>
-<li><strong>Open block</strong> — first/last open times, first-open IP and UA</li>
-<li><strong>Open history table</strong> — every open with time, IP, UA</li>
-<li><strong>Click history table</strong> — every click with time, target URL, IP, UA</li>
+<li><strong>Header block</strong>: from, to, BCC, subject and context</li>
+<li><strong>SMTP block</strong>: Message-ID, SMTP reply and any error</li>
+<li><strong>Open and click history</strong>: every open and click with its time, approximate location, email client and classification</li>
 </ul>
-<div class="callout">Open and click history are capped at the most recent 50 entries per email. The lifetime totals (<code>openCount</code> / <code>clickCount</code>) keep counting beyond 50.</div>
+<h3>Order activity</h3>
+<p>Every order page shows an <strong>Email activity</strong> panel with a summary and the latest events. <strong>Open full activity</strong> leads to the order's timeline, which merges the order's email events with Vendure's own order history: state changes, payments, fulfilments, refunds, cancellations and notes. Filter by emails, opens, clicks, delivery, order and payment, or notes; the page loads 100 events at a time, with <strong>Load more</strong>. The buttons export a CSV, open the PDF evidence report and, for roles with the <code>ExportEmailEvidence</code> permission, a full JSON export.</p>
+<h3>Customer Emails tab</h3>
+<p>Every customer page gets an <strong>Emails</strong> tab: what was sent to that customer, with links to each order and its activity.</p>
+<div class="callout">IP-derived locations are approximate and may show a mail proxy, VPN or security scanner rather than the customer. Machine-likely opens are often privacy proxies or scanners.</div>
+'''),
+        ('provider-webhooks', 'Provider delivery webhooks', '''
+<p>Point your email provider's event webhook at your own server, and the plugin records deliveries, deferrals, bounces, drops, complaints and unsubscribes from it. Each provider has its own URL and is verified with its own signature scheme:</p>
+<table>
+<thead><tr><th>Provider</th><th>URL</th><th>How it is verified</th></tr></thead>
+<tbody>
+<tr><td>Postmark</td><td><code>/email-track/webhook/postmark</code></td><td>HTTP Basic auth with the username and password you set</td></tr>
+<tr><td>SendGrid</td><td><code>/email-track/webhook/sendgrid</code></td><td>Signed Event Webhook: ECDSA over the timestamp and the exact request body</td></tr>
+<tr><td>Mailgun</td><td><code>/email-track/webhook/mailgun</code></td><td>HMAC-SHA256 with your webhook signing key, a timestamp window and a replay check</td></tr>
+<tr><td>Amazon SES</td><td><code>/email-track/webhook/ses</code></td><td>The SNS message signature, checked against Amazon's certificate, and your topic ARN</td></tr>
+</tbody>
+</table>
+<div class="doc-code"><span class="k">EmailTrackingPlugin</span>.init({
+  publicBaseUrl: <span class="s">'https://shop.example.com'</span>,
+  providerWebhooks: {
+    postmark: { username: process.env.<span class="k">POSTMARK_HOOK_USER</span>, password: process.env.<span class="k">POSTMARK_HOOK_PASS</span> },
+    sendgrid: { verificationKey: process.env.<span class="k">SENDGRID_WEBHOOK_KEY</span> },  <span class="c">// the public key SendGrid shows</span>
+    mailgun:  { signingKey: process.env.<span class="k">MAILGUN_WEBHOOK_KEY</span> },
+    ses:      { topicArns: [<span class="s">'arn:aws:sns:eu-west-1:123456789012:email-events'</span>] },
+  },
+}),</div>
+<p>Configure only the providers you use. An unknown provider gets 404, and a provider that isn't configured, or a request that fails verification, gets 401. Each provider event is stored once, however often the provider retries it. Hard bounces and complaints add the address to the suppression list; soft bounces and deferrals never do. A delivered event moves the email to <code>delivered</code>, but never over a bounce or complaint.</p>
+<p>Opens and clicks reported by the provider are ignored by default, because the plugin's own pixel and redirector already count them. Set <code>recordEngagement: true</code> to store them as events too.</p>
+'''),
+        ('ip-enrichment', 'IP enrichment (optional)', '''
+<p>Off by default: without this option the plugin makes no third-party calls. When you switch it on, the IP address of each open and click is looked up for its network details (ASN, organisation and the proxy, VPN, datacentre and mobile flags), which also sharpen the human/machine classification.</p>
+<div class="doc-code"><span class="k">EmailTrackingPlugin</span>.init({
+  <span class="c">// ...</span>
+  ipEnrichment: { provider: <span class="s">'ipinfo'</span>, token: process.env.<span class="k">IPINFO_TOKEN</span> },
+  <span class="c">// or { provider: 'ip-api', key: process.env.IPAPI_KEY }, or { provider: 'custom', lookup: async ip =&gt; ({ ... }) }</span>
+}),</div>
+<ul>
+<li>Only the IP address (and your API token, if the provider needs one) is sent, after the event is stored, so a lookup never holds up an email, a pixel or a redirect.</li>
+<li>Private and reserved addresses are skipped, results are cached for 24 hours, and a per-minute budget is kept.</li>
+<li>ip-api.com without a key uses its free endpoint, which is plain HTTP and for non-commercial use only under ip-api's terms; the plugin warns about this at boot.</li>
+</ul>
+'''),
+        ('order-activity', 'Order activity and the evidence report', '''
+<p>The order timeline is also available over HTTP, with a licence or during the evaluation, for roles with <code>ReadOrder</code> and <code>ReadCustomer</code> on the order's channel:</p>
+<div class="doc-code">GET  /email-track/orders/:orderId/activity?filter=opens&amp;take=100
+GET  /email-track/orders/:orderId/activity.csv
+GET  /email-track/orders/:orderId/activity.json      <span class="c">// ?full=1 needs ExportEmailEvidence</span>
+POST /email-track/orders/:orderId/evidence-link     <span class="c">// a five-minute signed link to the PDF</span></div>
+<p>The <strong>Order activity and delivery evidence report</strong> PDF lists the order, its customer and payment state, the email summary and the full timeline, with a note on how to read IP locations and machine-likely opens. It prints a SHA-256 of the timeline, so the document can be matched to a later JSON export. Private order notes are left out unless you ask for them.</p>
+<p>Exports and the PDF are sent with <code>Cache-Control: private, no-store</code>, so a CDN never keeps them.</p>
 '''),
         ('suppression', 'Suppression list', '''
-<p>The plugin maintains an <code>email_suppression</code> table — recipients who should never be sent to. The table is populated automatically when the bounce webhook reports a hard bounce or a complaint, and you can add entries manually.</p>
-<p>When <code>sendTracked()</code> is called for a suppressed recipient, the row is written to <code>email_log</code> with <code>status='suppressed'</code> and <code>errorMessage='Recipient is on the suppression list'</code> — but no SMTP call is made.</p>
+<p>The plugin maintains an <code>email_suppression</code> table: recipients who should never be sent to. It is filled automatically by hard bounces and complaints from the bounce webhook and the provider webhooks, and you can add entries manually.</p>
+<p>When a send is attempted for a suppressed recipient, the row is written to <code>email_log</code> with <code>status='suppressed'</code>, and no SMTP call is made.</p>
+<p>The suppression endpoints are admin endpoints: call them with an admin session (cookie or <code>Authorization: Bearer</code> token). Listing needs <code>ReadCustomer</code>; adding and lifting need <code>UpdateCustomer</code>.</p>
 <h3>Adding entries manually</h3>
 <div class="doc-code">curl -X POST https://shop.example.com/email-track/suppression \\
-  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \\
   -d '{"recipient":"angry@example.com","reason":"manual","note":"Asked to be removed via support"}'</div>
 <h3>Lifting a suppression</h3>
-<div class="doc-code">curl -X DELETE https://shop.example.com/email-track/suppression/angry@example.com</div>
+<div class="doc-code">curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" https://shop.example.com/email-track/suppression/angry@example.com</div>
 <h3>Listing the table</h3>
-<div class="doc-code">curl https://shop.example.com/email-track/suppression?take=200</div>
+<div class="doc-code">curl -H "Authorization: Bearer $ADMIN_TOKEN" "https://shop.example.com/email-track/suppression?take=200"</div>
 '''),
         ('webhook', 'Bounce webhook', '''
-<p>Wire your postmaster integration (or scheduled DSN parser) to POST to <code>/email-track/bounce</code>:</p>
-<div class="doc-code">{
-  "messageId": "&lt;abc@gmail.com&gt;",       <span class="c">// the smtpMessageId from the original send</span>
-  "status": "bounced",                       <span class="c">// or 'complained'</span>
-  "reason": "550 5.1.1 The email account ..."
-}</div>
-<p>The matching <code>email_log</code> row is updated and the recipient is auto-added to the suppression list. The endpoint is unauthenticated — gate it behind a shared secret header if you expose it to the public internet.</p>
+<p>If your own postmaster integration or DSN parser reports bounces, POST them to <code>/email-track/bounce</code>, signed with your <code>bounceWebhookSecret</code>:</p>
+<div class="doc-code">BODY='{"messageId":"&lt;abc@mail.example.com&gt;","status":"bounced","reason":"550 5.1.1 The email account does not exist"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$HULO_BOUNCE_WEBHOOK_SECRET" | cut -d' ' -f2)
+curl -X POST https://shop.example.com/email-track/bounce \\
+  -H "Content-Type: application/json" -H "X-Signature: $SIG" -d "$BODY"</div>
+<p><code>status</code> is <code>bounced</code> or <code>complained</code>; add <code>"bounceType":"soft"</code> for a temporary failure, which is recorded but never suppresses. The matching <code>email_log</code> row is updated and, for hard bounces and complaints, the recipient joins the suppression list.</p>
+<div class="callout">The signature is the hex HMAC-SHA256 of the exact request body (a <code>sha256=</code> prefix is accepted too). The secret is <code>bounceWebhookSecret</code>, or a <code>signingSecret</code> you configured; with neither, the endpoint answers 503. On a private network only, <code>allowUnauthenticatedBounceWebhook: true</code> accepts unsigned requests.</div>
 '''),
         ('analytics', 'Per-template analytics', '''
 <p>For an aggregated view of how each email <em>type</em> performs, hit:</p>
@@ -248,19 +287,25 @@ yarn migration:run</div>
 '''),
         ('csv-export', 'CSV export', '''
 <p>The list endpoint has a CSV mirror. Same filters, same shape:</p>
-<div class="doc-code">GET /email-track/log/export.csv?status=sent&from=2026-05-01</div>
-<p>Up to 50 000 rows per call.</p>
+<div class="doc-code">GET /email-track/log/export.csv?status=sent&amp;from=2026-05-01</div>
+<p>Up to 50 000 rows per call. Cells that a spreadsheet would run as a formula are quoted.</p>
 '''),
         ('endpoints', 'HTTP endpoints', '''
 <table>
 <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
 <tbody>
-<tr><td>GET</td><td><code>/email-track/open/:id.gif</code></td><td>Public pixel — logs an open then serves a 1×1 GIF</td></tr>
-<tr><td>GET</td><td><code>/email-track/click/:id?u=&lt;url&gt;</code></td><td>Public click redirector — logs then 302s to the original URL</td></tr>
-<tr><td>POST</td><td><code>/email-track/bounce</code></td><td>Bounce / complaint webhook</td></tr>
+<tr><td>GET</td><td><code>/email-track/open/:token.gif</code></td><td>Public pixel: records a signed open, then serves a 1×1 GIF</td></tr>
+<tr><td>GET</td><td><code>/email-track/click/:token?u=&lt;url&gt;&amp;s=&lt;sig&gt;</code></td><td>Public click redirector: checks the signed destination, records the click, then 302s</td></tr>
+<tr><td>POST</td><td><code>/email-track/webhook/:provider</code></td><td>Provider delivery events (postmark, sendgrid, mailgun, ses), verified by the provider's signature</td></tr>
+<tr><td>POST</td><td><code>/email-track/bounce</code></td><td>Bounce / complaint webhook, signed with X-Signature</td></tr>
+<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity</code></td><td>Admin: the order's activity timeline</td></tr>
+<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity.csv</code></td><td>Admin: redacted CSV of the timeline</td></tr>
+<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity.json</code></td><td>Admin: redacted JSON; <code>?full=1</code> needs ExportEmailEvidence</td></tr>
+<tr><td>POST</td><td><code>/email-track/orders/:orderId/evidence-link</code></td><td>Admin: a five-minute signed link to the PDF evidence report</td></tr>
+<tr><td>GET</td><td><code>/email-track/orders/:orderId/evidence.pdf</code></td><td>The PDF evidence report, through its signed link</td></tr>
 <tr><td>GET</td><td><code>/email-track/log</code></td><td>Admin: paginated log with filters</td></tr>
-<tr><td>GET</td><td><code>/email-track/log/summary</code></td><td>Admin: status totals tile</td></tr>
-<tr><td>GET</td><td><code>/email-track/log/:id</code></td><td>Admin: full detail (incl. opens + clicks arrays)</td></tr>
+<tr><td>GET</td><td><code>/email-track/log/summary</code></td><td>Admin: status totals</td></tr>
+<tr><td>GET</td><td><code>/email-track/log/:id</code></td><td>Admin: full detail, incl. opens and clicks</td></tr>
 <tr><td>GET</td><td><code>/email-track/log/stats/by-template</code></td><td>Admin: per-template aggregates</td></tr>
 <tr><td>GET</td><td><code>/email-track/log/export.csv</code></td><td>Admin: CSV export</td></tr>
 <tr><td>GET</td><td><code>/email-track/suppression</code></td><td>Admin: list suppressions</td></tr>
@@ -270,16 +315,17 @@ yarn migration:run</div>
 </table>
 '''),
         ('troubleshooting', 'Troubleshooting', '''
-<h3>Opens aren't being recorded</h3>
-<p>Many email clients prefetch images through a proxy (Gmail's <code>googleimageproxy</code>, Outlook's SafeLinks). The plugin recognises common proxies and flags those opens as <code>isBot: true</code> on the open entry — they still count in <code>openCount</code> but you can filter them out in the UI.</p>
-<h3>Clicks redirect to a "blank target" 400</h3>
-<p>The redirector refuses URLs that don't start with <code>http://</code> or <code>https://</code> — including <code>javascript:</code>, <code>data:</code>, <code>mailto:</code>. The link rewriter already excludes <code>mailto:</code> and unsubscribe-style links from rewriting, so you shouldn't see this in normal use.</p>
-<h3>Suppression list isn't catching recent bounces</h3>
-<p>Make sure your bounce / DSN webhook is hitting <code>/email-track/bounce</code> with a <code>messageId</code> that matches what your SMTP transport returned at send time. Gmail returns the messageId in the <code>250 2.0.0 OK 1234567890 abc@gmail.com</code> response — the plugin stores it as <code>smtpMessageId</code> on the EmailLog row.</p>
+<h3>Opens look like they come from Google or Microsoft</h3>
+<p>Many email clients fetch images through a proxy (Gmail's image proxy, Apple Mail Privacy Protection) and security gateways click links to scan them (Microsoft Safe Links, Proofpoint). Those events are stored and classified <code>machine_likely</code> with the reason, so you can tell them apart from real customers.</p>
+<h3>Clicks answer 400 "Invalid redirect target"</h3>
+<p>The redirector only follows its own signed links. A link copied from an email sent before a signing secret existed only redirects to your own hosts; add other domains to <code>clickRedirectAllowedDomains</code> to keep those working.</p>
+<h3>A provider webhook answers 401</h3>
+<p>The provider isn't configured in <code>providerWebhooks</code>, or its signature doesn't verify: check the credentials or key, and that nothing in front of Vendure (a proxy or WAF) rewrites the request body.</p>
+<h3>The suppression list isn't catching recent bounces</h3>
+<p>Make sure your provider webhook or bounce webhook reaches the server, and that the bounce carries the <code>messageId</code> your SMTP transport returned at send time; the plugin stores it as <code>smtpMessageId</code> on the email's row.</p>
 '''),
     ],
 }
-
 
 # ─────────────────────────────────────────────────────────────────────────
 # Geo-block
@@ -1283,8 +1329,10 @@ def label_regions(html_str, section_title):
 def render_manual(m):
     canonical = f'https://huloglobal.com/vendure-plugins/{m["slug"]}/docs/'
     title_short = m['title_short']
+    trail = [('Vendure plugins', '/vendure-plugins/'), (title_short, f"/vendure-plugins/{m['slug']}/"), ('Manual', None)]
     head = vp.header(f"{title_short} for Vendure — User Manual | Hulo Global", canonical,
-                     f"Complete user manual for the @huloglobal/vendure-plugin-{m['slug']} Vendure plugin: install, admin UI, endpoints, troubleshooting.")
+                     f"Complete user manual for the @huloglobal/vendure-plugin-{m['slug']} Vendure plugin: install, admin UI, endpoints, troubleshooting.",
+                     crumbs=trail)
     toc_items = '\n'.join(
         f'<li><a href="#{slug}">{html.escape(title)}</a></li>'
         for slug, title, _ in m['sections']
@@ -1295,7 +1343,7 @@ def render_manual(m):
     )
     band = vp.platform_band('vd', m['slug'], title_short, vp.edition_title('wp', m['slug'], title_short))
     return head + DOC_STYLE + band + f'''<div class="container-page page-y pf-vd">
-{vp.crumbs([('Vendure plugins', '/vendure-plugins/'), (title_short, f"/vendure-plugins/{m['slug']}/"), ('Manual', None)])}
+{vp.crumbs(trail)}
 <span class="pf-badge">For Vendure</span>
 <h1 class="mt-4 text-4xl md:text-5xl font-bold tracking-tight text-ink-900" style="margin-bottom:40px">{html.escape(title_short)} for Vendure: user manual</h1>
 <div class="doc">

@@ -36,6 +36,10 @@
 }
 html { scroll-padding-top: calc(var(--hu-hdr) + var(--hu-nav)); scroll-padding-bottom: 4.5rem; }
 main [id], main [role="region"][tabindex], main [role="tabpanel"] { scroll-margin-top: 0.75rem; }
+/* The bars' own controls sit inside that padded band while the bars are
+   stuck: focusing one (Tab, or a click or tap on the currency picker) must
+   not scroll the page to bring it below the band. */
+body > header :is(a, button, select, input), .hu-secnav a { scroll-margin-top: calc(-1 * (var(--hu-hdr) + var(--hu-nav))); }
 #main[tabindex="-1"]:focus { outline: none; }
 
 /* Shown from the first paint when scripts run (html.hu-js, set in <head>),
@@ -88,6 +92,13 @@ html:not(.hu-js) .hu-reveal { opacity: 1; transform: none; }
 .hu-secnav-list.is-overflowing.is-end, .hu-tablist.is-overflowing.is-end, .hu-chips.is-overflowing.is-end { mask-image: none; }
 .hu-secnav-list.is-overflowing.is-scrolled.is-end, .hu-tablist.is-overflowing.is-scrolled.is-end, .hu-chips.is-overflowing.is-scrolled.is-end {
   mask-image: linear-gradient(to right, transparent, #000 2.5rem);
+}
+/* Wide tables that scroll sideways (comparison, compatibility, endpoints,
+   manual and policy tables): a shade on each edge that hides columns. */
+[role="region"].is-overflowing:not(.is-end) { box-shadow: inset -22px 0 18px -18px rgb(15 23 42 / 0.35); }
+[role="region"].is-overflowing.is-scrolled.is-end:not(.vp-compare-table) { box-shadow: inset 22px 0 18px -18px rgb(15 23 42 / 0.35); }
+[role="region"].is-overflowing.is-scrolled:not(.is-end):not(.vp-compare-table) {
+  box-shadow: inset -22px 0 18px -18px rgb(15 23 42 / 0.35), inset 22px 0 18px -18px rgb(15 23 42 / 0.35);
 }
 .hu-secnav li { flex: none; }
 .hu-secnav a {
@@ -315,6 +326,13 @@ ul.hu-cl-sub > li::before { content: ""; position: absolute; left: 0.1rem; top: 
   font: inherit; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: background-color 0.15s, border-color 0.15s;
 }
 .hu-clip-btn:hover { background: var(--color-ink-50, #f8fafc); border-color: var(--color-ink-400, #94a3b8); }
+/* "Show all N changes" moves focus to the first change it shows, and
+   scrolls it to the top of the window when it is out of view: with the same
+   room below the sticky bars as main [id], so its ring (3px out, 2px wide)
+   is not tucked under them. */
+.hu-rel-body [tabindex="-1"] { scroll-margin-top: 0.75rem; }
+.hu-rel-body [tabindex="-1"]:focus { outline: none; }
+.hu-rel-body [tabindex="-1"]:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: 3px; border-radius: 4px; }
 .hu-clip-btn::after { content: ""; display: inline-block; width: 0.45rem; height: 0.45rem; margin-left: 0.15rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform 0.2s; }
 .hu-clip-btn[aria-expanded="true"]::after { transform: translateY(2px) rotate(-135deg); }
 .hu-more { margin-top: 0.75rem; }
@@ -440,19 +458,25 @@ html:has(.hu-lightbox[open]) { overflow: hidden; }
   .hu-lb-body { display: flex; flex-direction: column; justify-content: center; }
   .hu-lb-stage { flex: 0 1 auto; width: 100%; aspect-ratio: 1 / var(--hu-lb-ratio, 0.625); }
 }
-/* Short landscape screens: the image beside the caption and the buttons. */
+/* Short landscape screens: the image beside the caption and the buttons.
+   Previous and Next stay on one row (with WCAG text spacing too), so the
+   caption keeps the height; a caption that is still taller than its row
+   scrolls inside it (the script makes it a tab stop then) instead of running
+   under the buttons. */
 @media (max-height: 500px) and (min-width: 560px) and (orientation: landscape) {
   .hu-lightbox[open] { grid-template-columns: minmax(0, 1fr) min(18rem, 38vw); grid-template-rows: auto minmax(0, 1fr) auto; }
   .hu-lb-bar { grid-column: 1 / -1; }
   .hu-lb-body { display: contents; }
   .hu-lb-stage { grid-column: 1; grid-row: 2 / 4; margin: 0.5rem 0 0.5rem 0.5rem; }
-  .hu-lb-cap { grid-column: 2; grid-row: 2; align-self: start; text-align: left; padding: 0.75rem 1rem 0; }
-  .hu-lb-nav { grid-column: 2; grid-row: 3; flex-wrap: wrap; padding: 0.5rem 1rem 0.75rem; }
-  .hu-lb-nav .btn { flex: 1 1 auto; justify-content: center; padding: 0.5rem 0.8rem; }
+  .hu-lb-cap { grid-column: 2; grid-row: 2; align-self: start; max-height: 100%; min-height: 0; overflow-y: auto; text-align: left; padding: 0.75rem 1rem 0; }
+  .hu-lb-cap:focus-visible { outline: 2px solid var(--color-accent-500, #2563eb); outline-offset: -2px; }
+  .hu-lb-nav { grid-column: 2; grid-row: 3; flex-wrap: wrap; gap: 0.5rem; padding: 0.4rem 1rem 0.6rem; }
+  .hu-lb-nav .btn { flex: 1 1 auto; justify-content: center; padding: 0.5rem 0.6rem; }
 }
 @media (max-height: 500px) and (min-width: 560px) and (max-width: 679px) and (orientation: landscape) {
-  .hu-lightbox[open] { grid-template-columns: minmax(0, 1fr) min(18rem, 46vw); }
-  .hu-lb-nav { gap: 0.5rem; padding-inline: 0.75rem; }
+  .hu-lightbox[open] { grid-template-columns: minmax(0, 1fr) min(19rem, 50vw); }
+  .hu-lb-cap { padding-top: 0.25rem; }
+  .hu-lb-nav { padding: 0.25rem 0.5rem 0.4rem; }
 }
 /* Tiny screens (400% zoom and the like): one column that scrolls. */
 @media (max-height: 300px) {

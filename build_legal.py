@@ -80,9 +80,14 @@ FOOT = '''
 
 def page(slug, title, description, body_html):
     canonical = f'https://huloglobal.com/legal/{slug}/' if slug else 'https://huloglobal.com/legal/'
-    head = (vp.header(f'{title} — Hulo Global', canonical, description) + LEGAL_STYLE
+    trail = [('Home', '/')] + ([('Legal', '/legal/'), (title, None)] if slug else [('Legal', None)])
+    # The <title> says these are the plugin documents, so they are not
+    # mistaken for huloglobal.com's own notices (/terms, /privacy, /cookies,
+    # /acceptable-use) in search results; the page heading is unchanged.
+    doc_title = f'Plugin {title}' if slug else 'Plugin terms and policies'
+    head = (vp.header(f'{doc_title} — Hulo Global', canonical, description, crumbs=trail) + LEGAL_STYLE
             + '<div class="container-page page-y"><div class="legal-shell">'
-            + vp.crumbs([('Home', '/')] + ([('Legal', '/legal/'), (title, None)] if slug else [('Legal', None)])))
+            + vp.crumbs(trail))
     meta = f'''
 <div class="meta">
 <span><strong>Version:</strong> {TERMS_VERSION}</span>
@@ -150,7 +155,7 @@ TERMS_BODY += '''
 <ul>
 <li>your purchase of a monthly subscription or a one-off lifetime licence for any of the Vendure plugins we publish (the <strong>Plugins</strong>);</li>
 <li>your use of any free trial we offer;</li>
-<li>your use of the customer-facing endpoints we host at <code>elite.charity</code> in support of the Plugins (Stripe Checkout, Customer Portal, key resend, GDPR data export and erasure).</li>
+<li>your use of the customer-facing endpoints we host at <code>huloglobal.com/licence</code> in support of the Plugins (Stripe Checkout, Customer Portal, key resend, GDPR data export and erasure).</li>
 </ul>
 <p>They do not cover any third-party services you use the Plugins with, including Vendure, Stripe, your hosting provider, your email provider, MaxMind, or the npm registry. Those have their own terms.</p>
 
@@ -187,7 +192,7 @@ TERMS_BODY += '''
 
 <h2 id="s8">8. Cancellation and refunds</h2>
 <h3>8.1 Monthly subscriptions</h3>
-<p>You can cancel at any time via the <a href="https://elite.charity/licence/portal">Customer Portal</a> link in your receipt email, or by replying to it. Cancellation takes effect at the end of the current billing period; you retain access until then.</p>
+<p>You can cancel at any time via the Customer Portal link in your receipt email, or by replying to it. Cancellation takes effect at the end of the current billing period; you retain access until then.</p>
 <p>We do not pro-rate refunds for partial months. However, if you cancel within 14 days of a renewal and confirm you did not use the Plugin during that period, we will refund that renewal as a goodwill gesture.</p>
 
 <h3>8.2 Lifetime licences</h3>
@@ -315,7 +320,7 @@ PRIVACY_BODY += '''
 <p>This Policy covers personal data we collect when you:</p>
 <ul>
 <li>browse <code>huloglobal.com</code>;</li>
-<li>buy a subscription or lifetime licence at <code>elite.charity/licence/buy/&lt;plugin&gt;</code>;</li>
+<li>buy a subscription or lifetime licence at <code>huloglobal.com/licence/buy/&lt;plugin&gt;</code>;</li>
 <li>use the customer self-service endpoints we operate (Customer Portal, key resend, GDPR data export);</li>
 <li>email or otherwise contact us.</li>
 </ul>
@@ -387,11 +392,11 @@ PRIVACY_BODY += '''
 <li><strong>Object</strong> to processing based on legitimate interest;</li>
 <li><strong>Withdraw consent</strong> (if we ever rely on consent — we currently do not).</li>
 </ul>
-<p>You can exercise the access and erasure rights yourself, instantly, at <a href="https://elite.charity/licence/privacy">elite.charity/licence/privacy</a>. We will email you a magic link to view (and optionally delete) every record. For any other right, email us at <a href="mailto:''' + COMPANY['email'] + '''">''' + COMPANY['email'] + '''</a> and we will respond within 30 days.</p>
+<p>You can exercise the access and erasure rights yourself, instantly, at <a href="https://huloglobal.com/licence/privacy">huloglobal.com/licence/privacy</a>. We will email you a magic link to view (and optionally delete) every record. For any other right, email us at <a href="mailto:''' + COMPANY['email'] + '''">''' + COMPANY['email'] + '''</a> and we will respond within 30 days.</p>
 
 <h2 id="s9">9. Cookies</h2>
 <p>Our marketing site (<code>huloglobal.com</code>) sets <strong>no cookies of any kind</strong>. The currency preference on the buy page is stored in <code>localStorage</code>, which is technically not a cookie and is exempt from PECR consent requirements; you can clear it any time via your browser settings.</p>
-<p>Our checkout pages (<code>elite.charity</code>) set a session cookie only if you proceed through Stripe Checkout. Stripe sets its own cookies for fraud prevention and accessibility — see <a href="https://stripe.com/cookies-policy/legal">Stripe\'s cookie policy</a>.</p>
+<p>Our checkout pages (<code>huloglobal.com/licence</code>) set a session cookie only if you proceed through Stripe Checkout. Stripe sets its own cookies for fraud prevention and accessibility — see <a href="https://stripe.com/cookies-policy/legal">Stripe\'s cookie policy</a>.</p>
 <p>See our <a href="/legal/cookies/">Cookie Policy</a> for the full list.</p>
 
 <h2 id="s10">10. Children</h2>
@@ -421,11 +426,11 @@ COOKIES_BODY = '''
 <p>We set <strong>no cookies of any kind</strong> on the marketing site or on any of the plugin pages, manuals or legal pages here. No analytics, no fingerprinting, no consent banner needed.</p>
 <p>The currency picker stores your preference in <code>localStorage</code>, which is not a cookie under PECR. You can clear it any time via your browser settings.</p>
 
-<h2>Checkout (elite.charity)</h2>
+<h2>Checkout (huloglobal.com/licence)</h2>
 <p>When you click "Buy" or "Start free trial" you are taken to Stripe Checkout on <code>checkout.stripe.com</code>. Stripe sets cookies for fraud prevention and accessibility — see <a href="https://stripe.com/cookies-policy/legal">Stripe\'s cookie policy</a>.</p>
 <p>Cloudflare may set a strictly-necessary cookie (<code>__cf_bm</code>) to distinguish bots from humans for DDoS protection. This is exempt from consent requirements under PECR regulation 6(4)(b).</p>
 
-<h2>Customer-portal pages (elite.charity/licence/*)</h2>
+<h2>Customer-portal pages (huloglobal.com/licence/*)</h2>
 <p>No cookies are set by us. Where we issue magic links (key resend, privacy data export, customer portal access) the access token is in the URL query string, not a cookie.</p>
 
 <h2>Visitor analytics plugin</h2>
@@ -495,7 +500,7 @@ DPA_BODY = '''
 <li>Process Personal Data only on documented instructions from the Controller (these Terms + this DPA are such instructions);</li>
 <li>Ensure persons authorised to process Personal Data are bound by confidentiality;</li>
 <li>Implement appropriate technical and organisational security measures (see Annex 2);</li>
-<li>Assist the Controller in responding to Data Subject requests under Articles 15-22 UK GDPR, by providing the self-service endpoints at <code>elite.charity/licence/privacy</code> and <code>elite.charity/licence/forgot</code>;</li>
+<li>Assist the Controller in responding to Data Subject requests under Articles 15-22 UK GDPR, by providing the self-service endpoints at <code>huloglobal.com/licence/privacy</code> and <code>huloglobal.com/licence/forgot</code>;</li>
 <li>Notify the Controller without undue delay (and in any event within 72 hours) of becoming aware of a Personal Data breach;</li>
 <li>Assist the Controller with DPIAs and consultations with the Supervisory Authority where reasonably required;</li>
 <li>At the Controller\'s choice on termination, delete or return all Personal Data, subject to record-keeping required by law.</li>
@@ -564,8 +569,8 @@ INDEX_BODY += '''
 <li><a href="/legal/acceptable-use/"><strong>Acceptable Use Policy</strong></a> — the things you must not do with the plugins.</li>
 <li><a href="/legal/dpa/"><strong>Data Processing Addendum</strong></a> — UK GDPR processor obligations for B2B customers.</li>
 </ul>
-<p style="margin-top:32px">Want to exercise your right to access or delete the data we hold about you? Visit <a href="https://elite.charity/licence/privacy">elite.charity/licence/privacy</a>.</p>
-<p>Lost your licence key? <a href="https://elite.charity/licence/forgot">elite.charity/licence/forgot</a>.</p>
+<p style="margin-top:32px">Want to exercise your right to access or delete the data we hold about you? Visit <a href="https://huloglobal.com/licence/privacy">huloglobal.com/licence/privacy</a>.</p>
+<p>Lost your licence key? <a href="https://huloglobal.com/licence/forgot">huloglobal.com/licence/forgot</a>.</p>
 <p>Want to cancel or manage a subscription? Use the Customer Portal link in your receipt email, or reply to it.</p>
 
 <h2>For lawyers, regulators and auditors</h2>
@@ -583,7 +588,7 @@ def main():
     for slug, title, desc, body in [
         ('terms', 'Terms of Service', 'Terms of Service for Hulo Global\'s Vendure plugins — trial, refunds, cancellation, licence grant, liability, governing law.', TERMS_BODY),
         ('privacy', 'Privacy Policy', 'Privacy Policy for Hulo Global Limited — what personal data we collect, why, and how to exercise your UK/EU GDPR rights.', PRIVACY_BODY),
-        ('cookies', 'Cookie Policy', 'Cookie Policy for huloglobal.com and elite.charity — what cookies we set and which we don\'t.', COOKIES_BODY),
+        ('cookies', 'Cookie Policy', 'Cookie Policy for huloglobal.com, including the licence pages at huloglobal.com/licence — what cookies we set and which we don\'t.', COOKIES_BODY),
         ('acceptable-use', 'Acceptable Use Policy', 'What you must not do with Hulo Global\'s Vendure plugins.', AUP_BODY),
         ('dpa', 'Data Processing Addendum', 'Standard Data Processing Addendum (UK GDPR) for B2B customers buying Hulo Global Vendure plugins.', DPA_BODY),
     ]:

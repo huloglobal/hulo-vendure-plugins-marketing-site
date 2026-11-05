@@ -243,6 +243,23 @@
   // ── Tabs (WAI-ARIA tabs pattern, horizontal, automatic activation). ──
   var groups = {}, uid = 0;
   var FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]';
+  // A panel whose first content (a heading, a paragraph, a code sample…) is
+  // not focusable is a tab stop itself, as the tabs pattern says: Tab from
+  // the selected tab then lands on the top of the panel (its heading), not on
+  // a link far down inside it. The heading each panel carries for the
+  // scripts-off and print layouts (.hu-tab-h) is not shown here, so it is
+  // skipped.
+  var CONTENT = 'h1, h2, h3, h4, h5, h6, p, ul, ol, dl, pre, table, figure, blockquote, img, [data-copy], ' + FOCUSABLE;
+  function startsFocusable(p) {
+    var c = all(CONTENT, p);
+    for (var i = 0; i < c.length; i++) {
+      var n = c[i];
+      if (n.closest('.hu-tab-h, .sr-only')) continue;
+      if (n.matches(FOCUSABLE)) return true;
+      if (n.tagName === 'IMG' || (n.textContent || '').trim()) return false;
+    }
+    return false;
+  }
   // The label in one inner span (the tab is a flex box: separate text runs
   // would be separate flex items that never wrap together), with a
   // hyphenated word ("add-on") kept on one line: a tab is never narrower
@@ -278,8 +295,7 @@
       t.setAttribute('aria-controls', p.id);
       p.setAttribute('role', 'tabpanel');
       p.setAttribute('aria-labelledby', t.id);
-      // A panel with nothing focusable in it is a tab stop itself.
-      if (!p.querySelector(FOCUSABLE)) { p.tabIndex = 0; showTopOnFocus(p); }
+      if (!startsFocusable(p)) { p.tabIndex = 0; showTopOnFocus(p); }
       t.addEventListener('click', function () { select(i, true); });
       t.addEventListener('keydown', function (e) {
         if (e.key === 'Tab') {
@@ -371,8 +387,45 @@
   function initScrollable(n) {
     scrollables.push(n);
     showTopOnFocus(n);
-    if (n.classList.contains('vp-compare-table')) fadeScroller(n);
+    // Every scrolling table shades the edge that hides columns (hulo-ui.css).
+    if (n.getAttribute('role') === 'region') fadeScroller(n);
+    if (n.classList.contains('vp-compare-table')) stickyColumn(n);
     checkOne(n);
+  }
+  // The comparison table's feature column stays put (position: sticky) while
+  // the plugin columns scroll under it. The browser's own focus scroll keeps
+  // clear of it (scroll-padding-inline-start, from the column's measured
+  // width, --hu-stick-w) but leaves alone a link that is only partly under
+  // it; keyboard focus on such a link scrolls the table until it is clear.
+  // On the right it also keeps clear of the shade over the hidden columns
+  // (about 22px, hulo-ui.css), and a link that ends up within a shade's
+  // width of the table's end takes the table all the way there, where the
+  // shade goes.
+  var EDGE = 8, SHADE = 40;
+  function stickyColumn(box) {
+    var first = box.querySelector('tr > :first-child');
+    if (!first) return;
+    function sticky() { return getComputedStyle(first).position === 'sticky'; }
+    function measure() { box.style.setProperty('--hu-stick-w', Math.round(sticky() ? first.getBoundingClientRect().width : 0) + 'px'); }
+    measure();
+    if (window.ResizeObserver) new ResizeObserver(measure).observe(first);
+    box.addEventListener('focusin', function (e) {
+      var t = e.target, cell = t.closest && t.closest('td, th');
+      if (t === box || !cell || cell.cellIndex === 0 || !keyboardFocus(t)) return;
+      // After the browser's own scroll (focus scrolls first).
+      requestAnimationFrame(function () {
+        if (doc.activeElement !== t) return;
+        var b = box.getBoundingClientRect(), r = t.getBoundingClientRect();
+        var max = box.scrollWidth - box.clientWidth, atEnd = box.scrollLeft >= max - 2;
+        var left = (sticky() ? first.getBoundingClientRect().right : b.left + box.clientLeft) + EDGE;
+        var right = b.left + box.clientLeft + box.clientWidth - (atEnd ? EDGE : SHADE);
+        if (r.left < left) box.scrollLeft -= left - r.left;
+        else if (r.right > right) {
+          var to = box.scrollLeft + Math.min(r.right - right, r.left - left);
+          box.scrollLeft = max - to < SHADE ? max : to;
+        }
+      });
+    });
   }
   var scrollTimer;
   addEventListener('resize', function () { clearTimeout(scrollTimer); scrollTimer = setTimeout(checkScrollables, 150); });
@@ -506,6 +559,25 @@
     });
   }
 
+  // ── The price card beside the features (Vendure pages). ──
+  // It sticks under the bars, 16px down (build.py). In a window too short to
+  // hold the whole card and its footnote from there, its foot (the buy
+  // button, the Terms and Privacy links) would stay below the window while
+  // it sticks, so there it scrolls with the page instead (.hu-aside-static).
+  function initAside(aside) {
+    function fit() {
+      aside.classList.remove('hu-aside-static');
+      var cs = getComputedStyle(aside);
+      if (cs.position !== 'sticky') return;
+      if ((parseFloat(cs.top) || 0) + aside.offsetHeight > innerHeight - EDGE) aside.classList.add('hu-aside-static');
+    }
+    fit();
+    var timer;
+    // after the period switch has settled the card's height (150ms)
+    addEventListener('resize', function () { clearTimeout(timer); timer = setTimeout(fit, 200); });
+    if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(function () { setTimeout(fit, 0); });
+  }
+
   // ── Release notes: "Show all N releases", "Show all N changes" on a long
   // open release, and the kind filter. ──
   var KIND_WORDS = { security: ['security change', 'security changes'], fix: ['fix', 'fixes'], feature: ['new feature', 'new features'] };
@@ -524,8 +596,27 @@
       clips.push({ r: r, b: b });
       b.classList.add('hu-ready');
       b.addEventListener('click', function () {
-        b.setAttribute('aria-expanded', b.getAttribute('aria-expanded') === 'true' ? 'false' : 'true');
+        var open = b.getAttribute('aria-expanded') !== 'true';
+        var was = b.getBoundingClientRect().top;
+        b.setAttribute('aria-expanded', open ? 'true' : 'false');
         clipSync();
+        // The changes it shows are spread through the release above the
+        // button (and push it down): focus, and the view, go to the first of
+        // them, so reading starts there and focus never stays on a button
+        // that has been pushed out of the window.
+        var first = open && r.querySelector('.hu-cl-x');
+        if (first) {
+          first.setAttribute('tabindex', '-1');
+          focusTop(first);
+        } else if (!open) {
+          // Hiding them again pulls the button up by as much: the page
+          // scrolls back by the same amount, at once, so the button (with
+          // focus or the pointer on it) stays where it was.
+          var shift = b.getBoundingClientRect().top - was;
+          if (Math.abs(shift) > 1) {
+            try { scrollTo({ top: scrollY + shift, behavior: 'instant' }); } catch (e) { scrollTo(0, scrollY + shift); }
+          }
+        }
       });
     });
     function clipSync() {
@@ -541,6 +632,13 @@
       if (!more || !btn) return;
       more.hidden = !on && kind === 'all';
       btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+      // Once the filter has spoken, keep what it says true.
+      if (status && status.textContent && kind === 'all') status.textContent = allSaid();
+    }
+    // On All: "Showing all N releases." only when they are; while the older
+    // ones wait behind "Show all N releases", "the latest 5 of N".
+    function allSaid() {
+      return (more && !expanded && status.getAttribute('data-folded')) || status.getAttribute('data-all') || '';
     }
     if (more && btn) {
       btn.hidden = false;
@@ -573,7 +671,7 @@
       clipSync();
       if (status && say) {
         var w = KIND_WORDS[k];
-        status.textContent = k === 'all' ? (status.getAttribute('data-all') || '')
+        status.textContent = k === 'all' ? allSaid()
           : 'Showing ' + items + ' ' + (items === 1 ? w[0] : w[1]) + ' in ' + releases + (releases === 1 ? ' release.' : ' releases.');
       }
     }
@@ -686,6 +784,9 @@
     body.appendChild(dlg);
     var title = dlg.querySelector('.hu-lb-title'), img = dlg.querySelector('.hu-lb-img'), cap = dlg.querySelector('.hu-lb-cap');
     var full = dlg.querySelector('.hu-lb-full');
+    // A real link from the start (the first screenshot), not an <a> without
+    // an href while the dialog waits closed: show() points it at each image.
+    full.href = links[0].getAttribute('href');
     var single = links.length < 2;
     if (single) dlg.querySelector('.hu-lb-nav').hidden = true;
     var firstThumb = links[0].querySelector('img');
@@ -693,6 +794,14 @@
       dlg.style.setProperty('--hu-lb-ratio', String(+firstThumb.getAttribute('height') / +firstThumb.getAttribute('width')));
     }
     function caption(a) { return a.getAttribute('data-caption') || ''; }
+    // A caption taller than its box (short landscape screens with large
+    // text) scrolls inside it: a tab stop then, so the keyboard can scroll it.
+    function capFit() {
+      if (!dlg.open) return;
+      if (cap.scrollHeight > cap.clientHeight + 1) cap.setAttribute('tabindex', '0');
+      else if (doc.activeElement !== cap) cap.removeAttribute('tabindex');
+    }
+    addEventListener('resize', capFit);
     function show(i, say) {
       index = (i + links.length) % links.length;
       var a = links[index];
@@ -703,6 +812,8 @@
       var thumb = a.querySelector('img');
       if (thumb && thumb.getAttribute('width')) { img.width = +thumb.getAttribute('width'); img.height = +thumb.getAttribute('height'); }
       cap.textContent = caption(a);
+      cap.scrollTop = 0;
+      capFit();
       if (say) announce(title.textContent + '. ' + caption(a));
       var next = new Image();
       next.src = links[(index + 1) % links.length].getAttribute('href');
@@ -715,6 +826,7 @@
         opener = a;
         show(i, false);
         dlg.showModal();
+        capFit();
         dlg.querySelector('.hu-lb-close').focus();
       });
     });
@@ -742,7 +854,15 @@
   // ── Plugin catalogue: category chips + live search. ──
   // Search matches what a card says about the plugin (name, tagline, feature
   // list) and its keywords: not button labels, prices or screen-reader text.
-  function norm(s) { return (s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  // Hyphens and dashes count as spaces, in the cards and in the query, and a
+  // card also matches its hyphenated words written as one ("e-mail" finds
+  // "email" and the other way round; "geo-block" finds "Geo Block").
+  var DASH = /[\u002d\u2010-\u2015\u2212]+/g;
+  function norm(s) { return (s || '').toLowerCase().replace(DASH, ' ').replace(/\s+/g, ' ').trim(); }
+  function joined(s) {
+    var w = (s || '').toLowerCase().match(/[a-z0-9]+(?:[\u002d\u2010\u2011][a-z0-9]+)+/g);
+    return w ? w.map(function (x) { return x.replace(DASH, ''); }).join(' ') : '';
+  }
   function visibleText(n) {
     var out = '';
     for (var c = n.firstChild; c; c = c.nextSibling) {
@@ -758,7 +878,8 @@
     if (!controls || !cards.length) return;
     cards.forEach(function (c) {
       var parts = all('h3, .vp-card-tagline, ul li', c).map(visibleText);
-      c.huText = norm(parts.join(' ') + ' ' + (c.getAttribute('data-keywords') || ''));
+      var text = parts.join(' ') + ' ' + (c.getAttribute('data-keywords') || '');
+      c.huText = norm(text + ' ' + joined(text));
     });
     var picked = controls.querySelector('input[type="radio"]:checked');
     var cat = picked ? picked.value : 'all';
@@ -844,9 +965,26 @@
       io.disconnect();
       waiting.forEach(function (t) { t.classList.remove('hu-reveal', 'hu-in'); t.style.removeProperty('--hu-d'); });
       removeEventListener('resize', onResize);
+      doc.removeEventListener('focusin', onFocus);
     }
     function onResize() { if (innerHeight > TALL || reduced()) showAll(); }
+    // Focus moving into something still waiting (or fading in): show it at
+    // once, with no fade, so the focused control and its ring are never
+    // invisible while the page scrolls to them. A fade already under way is
+    // cut short too (taking the classes off alone would let it run on).
+    function onFocus(e) {
+      waiting.forEach(function (t) {
+        if (!t.classList.contains('hu-reveal') || !t.contains(e.target)) return;
+        io.unobserve(t);
+        t.style.transition = 'none';
+        t.classList.remove('hu-reveal', 'hu-in');
+        t.style.removeProperty('--hu-d');
+        void t.offsetWidth;
+        t.style.removeProperty('transition');
+      });
+    }
     if (waiting.length) {
+      doc.addEventListener('focusin', onFocus);
       addEventListener('resize', onResize);
       if (motionQuery && motionQuery.addEventListener) motionQuery.addEventListener('change', onResize);
       printHooks.push({ before: showAll, after: function () {} });
@@ -855,10 +993,10 @@
 
   // ── Back to top. ──
   // From 1024px wide it shows once the page is well scrolled. Narrower, it
-  // floats over the content column (FAQ toggles, release chevrons, ends of
-  // lines), so there it shows only while the reader scrolls back up, and
-  // fades again a moment after scrolling stops, unless it has focus or the
-  // pointer.
+  // would float over the content column (FAQ toggles, release chevrons, Copy
+  // buttons), so there it shows only at the end of the page, once its spot
+  // is over the footer, and stays while the keyboard is in the footer (Tab
+  // after the last footer link reaches it) or on the button itself.
   function initTop() {
     if (root.scrollHeight < innerHeight * 2.5) return;
     var b = el('button', 'hu-top');
@@ -866,27 +1004,32 @@
     b.innerHTML = svg('<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>') + '<span class="sr-only">Back to top</span>';
     body.appendChild(b);
     var wide = window.matchMedia ? matchMedia('(min-width: 1024px)') : { matches: true };
-    var on = false, lastY = scrollY, idle = 0;
+    var foot = doc.querySelector('body > footer') || doc.querySelector('footer');
+    var on = false;
     function set(want) { if (want !== on) { on = want; b.classList.toggle('is-on', on); } }
     function engaged() {
       var hover = false;
       try { hover = b.matches(':hover'); } catch (e) { hover = false; }
       return doc.activeElement === b || hover;
     }
-    function later() {
-      clearTimeout(idle);
-      idle = setTimeout(function () { if (!wide.matches && !engaged()) set(false); }, 2200);
+    function inFooter() { var a = doc.activeElement; return !!foot && !!a && foot.contains(a); }
+    function overFooter() {
+      // the top of the button's spot (it is fixed to the bottom corner)
+      var spot = innerHeight - (parseFloat(getComputedStyle(b).bottom) || 16) - b.offsetHeight - 8;
+      return foot ? foot.getBoundingClientRect().top <= spot : innerHeight + scrollY >= root.scrollHeight - 4;
     }
-    onScroll(function () {
-      var y = scrollY, dy = y - lastY;
-      lastY = y;
-      if (y <= Math.max(700, innerHeight * 1.2)) { clearTimeout(idle); return set(false); }
-      if (wide.matches) return set(true);
-      if (dy < -4) { set(true); later(); }
-      else if (dy > 4 && !engaged()) { clearTimeout(idle); set(false); }
-    })();
-    b.addEventListener('blur', function () { if (on && !wide.matches) later(); });
-    b.addEventListener('mouseleave', function () { if (on && !wide.matches) later(); });
+    function update() {
+      if (scrollY <= Math.max(700, innerHeight * 1.2) && !inFooter()) return set(false);
+      set(wide.matches || overFooter() || inFooter() || engaged());
+    }
+    onScroll(update)();
+    if (foot) {
+      foot.addEventListener('focusin', update);
+      foot.addEventListener('focusout', function () { setTimeout(update, 0); });
+    }
+    b.addEventListener('blur', function () { setTimeout(update, 0); });
+    b.addEventListener('mouseleave', update);
+    if (wide.addEventListener) wide.addEventListener('change', update);
     b.addEventListener('click', function () {
       scrollTo({ top: 0, behavior: reduced() ? 'auto' : 'smooth' });
       var main = doc.getElementById('main');
@@ -915,10 +1058,11 @@
     if (changed) target.scrollIntoView();
   }
 
-  each('[data-copy]', initCopy);   // before tabs: a panel with a Copy button needs no tabindex of its own
+  each('[data-copy]', initCopy);   // before tabs, so each panel's Copy button is in place
   each('[role="region"][tabindex="0"], pre[tabindex="0"], .vp-code[tabindex="0"], .doc-code[tabindex="0"]', initScrollable);
   each('[data-tabs]', initTabs);
   each('[data-period]', initPeriod);
+  each('.vp-pricing-aside', initAside);   // after the period switch has set the card's height
   each('[data-changelog]', initChangelog);
   safely(expireNew);
   each('.vp-faq', initFaq);

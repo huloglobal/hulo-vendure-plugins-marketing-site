@@ -36,6 +36,30 @@ done
 BOX=root@192.168.1.33
 ROOT=/var/www/huloglobal/current/dist/client
 
+# The generated pages link the site-root icons, manifest and share image
+# that the main site (/root/huloglobal-site, public/) ships. Deployed before
+# that release is live, every page here would 404 on its favicon, touch icon
+# and manifest, so stop until each answers 200 on huloglobal.com. After a
+# main-site release, purge these URLs in Cloudflare if it still serves a
+# cached 404. HULO_SKIP_ICON_CHECK=1 deploys without the check.
+ROOT_ICONS=(/favicon.ico '/favicon.svg?v=3' /apple-touch-icon.png /site.webmanifest
+            /icon-192.png /icon-512.png /icon-maskable-512.png /og-image.png)
+if [[ "${HULO_SKIP_ICON_CHECK:-}" != "1" ]]; then
+    echo "→ Check the site-root icons on huloglobal.com"
+    missing=""
+    for path in "${ROOT_ICONS[@]}"; do
+        code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "https://huloglobal.com$path" || true)
+        [[ "$code" == "200" ]] || missing="$missing $path ($code)"
+    done
+    if [[ -n "$missing" ]]; then
+        echo "  not live:$missing"
+        echo "  Release the main site first (it ships these files), purge them in Cloudflare, then re-run."
+        echo "  HULO_SKIP_ICON_CHECK=1 ./deploy.sh deploys anyway."
+        exit 1
+    fi
+    echo "  all ${#ROOT_ICONS[@]} answer 200"
+fi
+
 echo "→ Build"
 # HULO_BUILD_DATE=YYYY-MM-DD ./deploy.sh measures the changelog "New" pills
 # from that day instead of today.
@@ -43,6 +67,9 @@ python3 build.py
 python3 build_manuals.py
 python3 build_legal.py
 python3 build_wordpress.py
+# One sitemap per tree (dist/<tree>/sitemap.xml): every indexable page that
+# is canonical to itself. robots.txt on huloglobal.com names all three.
+python3 build_sitemaps.py
 # Stylesheet for all generated pages, compiled from huloglobal.com's
 # Tailwind theme against the HTML just written (see build_css.mjs).
 node build_css.mjs
@@ -103,7 +130,10 @@ for url in \
     "https://huloglobal.com/legal/terms/" \
     "https://huloglobal.com/legal/privacy/" \
     "https://huloglobal.com/legal/cookies/" \
-    "https://huloglobal.com/legal/acceptable-use/"
+    "https://huloglobal.com/legal/acceptable-use/" \
+    "https://huloglobal.com/vendure-plugins/sitemap.xml" \
+    "https://huloglobal.com/wordpress-plugins/sitemap.xml" \
+    "https://huloglobal.com/legal/sitemap.xml"
 do
     status=$(curl -sSI -m 8 "$url" | head -1 | tr -d '\r')
     echo "  $status  $url"
@@ -119,7 +149,7 @@ echo
 echo "→ Git"
 # static/ holds the shared client code (hulo-ui.js / hulo-ui.css) and logos;
 # git status (not git diff) so new, untracked files there are committed too.
-SOURCES="build.py build_manuals.py build_legal.py build_wordpress.py build_css.mjs build_thumbs.mjs deploy.sh README.md static .github"
+SOURCES="build.py build_manuals.py build_legal.py build_wordpress.py build_sitemaps.py build_css.mjs build_thumbs.mjs deploy.sh README.md static .github"
 if [[ -n "$(git status --porcelain -- $SOURCES 2>/dev/null)" ]]; then
     git add $SOURCES 2>/dev/null || true
     if [[ -z "$MSG" ]]; then

@@ -13,6 +13,7 @@ detail pages, user manuals and install scripts shown at
 | `./deploy.sh --no-commit` | Build + deploy only — no git activity. |
 | `python3 build.py` | Build the marketing pages locally (no deploy). |
 | `python3 build_manuals.py` | Build the manual pages locally (no deploy). |
+| `python3 build_sitemaps.py` | After the page builders: `dist/{vendure-plugins,wordpress-plugins,legal}/sitemap.xml`, every page that is indexable and canonical to itself (the Pro stubs drop out). huloglobal.com's `robots.txt` names the three. |
 | `node build_css.mjs` | After the Python builders: compile `dist/vendure-plugins/assets/pages.css` from huloglobal.com's Tailwind theme (`/root/huloglobal-site/src/styles/global.css`) against the generated HTML, so every utility class the pages use exists, append `hulo-ui.css` to it, minified (one stylesheet per page), and minify the copied `hulo-ui.js`. |
 
 Styling: every generated page (Vendure, WordPress, manuals, changelogs,
@@ -94,6 +95,29 @@ Where the numbers come from (nothing on the pages is typed in by hand):
   (`HULO_FEATURE_REQUEST_TS`; a plugin the API would file as "general" is
   left out of the form). Both default to the files in `/root/ee.software`;
   without them the pages show no annual price and offer every plugin.
+- Licence pages: every buy, "Lost your key?" and privacy link points at
+  `https://huloglobal.com/licence/...` (`LICENCE_PAGES` / `BUY_BASE` in
+  `build.py`; the currency picker adds `?currency=` to every link under
+  `BUY_BASE`). elite.charity forwards its old addresses there. The roadmap
+  still talks to the feature-request API on elite.charity (`ROADMAP_API`);
+  at build time the public board is also written into the page, so it reads
+  without JavaScript.
+- Head and structured data (`header()` in `build.py`): the site-root icons
+  and manifest (shipped by the main site, so release it first: `deploy.sh`
+  stops while any of them is not live), the same robots meta as
+  `Base.astro`, Open Graph image size and alt text, and one JSON-LD
+  `@graph` per page: Organization (keep it in step with `Base.astro`),
+  BreadcrumbList from the trail the page shows (pass the same list to
+  `crumbs()` and `header(crumbs=...)`), and Product on the 18 plugin pages
+  with the offers as the price cards show them (no ratings or reviews):
+  every plan in every currency the picker shows a real price in, GBP first,
+  from the same table as the picker (`plan_offers()`), because the picker
+  follows the browser's language and Google renders pages as en-US. A
+  plugin whose tagline is longer than a search snippet has a
+  `seo_description` (155 characters or fewer).
+- Cloudflare e-mail obfuscation: the whole `<body>` is one `email_off`
+  region (opened in `HEADER`, closed in `FOOTER`). Never add an inner
+  marker: it would end the region early.
 - The nightly `/usr/local/sbin/marketing-site-sync.sh` (cron, 04:20 UTC)
   redeploys when npm or a WordPress build differs from the live site, and
   deploys nothing while this tree or the WordPress plugins' have
@@ -101,14 +125,18 @@ Where the numbers come from (nothing on the pages is typed in by hand):
 
 The deploy script:
 
-1. **Auto-fetches the current versions from npm** so the version chips
+1. Stops unless the site-root icons, manifest and share image the pages
+   link (`ROOT_ICONS`) answer 200 on huloglobal.com: the main site ships
+   them, so release it first (and purge those URLs in Cloudflare if it
+   still serves cached 404s). `HULO_SKIP_ICON_CHECK=1` skips the check.
+2. **Auto-fetches the current versions from npm** so the version chips
    on each plugin page stay in sync with what customers will actually
    `yarn add` — no manual bump needed.
-2. Builds the pages (`dist/vendure-plugins/`).
-3. Tars + SCPs to the huloglobal box (`192.168.1.33`), atomically
+3. Builds the pages (`dist/vendure-plugins/`).
+4. Tars + SCPs to the huloglobal box (`192.168.1.33`), atomically
    replaces the live directory, fixes file ownership.
-4. Hits each live URL to confirm 200.
-5. Commits the source (build scripts + this README) and pushes.
+5. Hits each live URL to confirm 200.
+6. Commits the source (build scripts + this README) and pushes.
 
 ## When to run it
 
@@ -130,6 +158,7 @@ marketing-site/
 ├── build_wordpress.py # /wordpress-plugins/ pages, zips, update manifests
 ├── build_manuals.py   # user manuals (one per plugin, with SVG admin mockups)
 ├── build_legal.py     # /legal/ pages
+├── build_sitemaps.py  # sitemap.xml for each of the three trees
 ├── build_css.mjs      # pages.css from the main site's Tailwind theme (+ hulo-ui.css, minified hulo-ui.js)
 ├── build_thumbs.mjs   # WebP screenshot thumbnails (called by build_wordpress.py)
 ├── static/            # logos + assets/hulo-ui.js (copied to dist), hulo-ui.css (into pages.css)

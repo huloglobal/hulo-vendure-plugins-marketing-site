@@ -507,8 +507,9 @@ def plugin_page(p: dict) -> str:
     annual = vp.annual_prices(slug, p['pricing'])
     if not vp.has_full_annual(annual):
         annual = {}
-    prices_js = ('<script>window.HULO_PRICES_OVERRIDE = '
-                 + json.dumps(vp.display_price_table(gbp['monthly'], gbp['lifetime'], real, annual)) + ';</script>')
+    # The prices the currency picker shows; the Product offers come from the same table.
+    price_table = vp.display_price_table(gbp['monthly'], gbp['lifetime'], real, annual)
+    prices_js = '<script>window.HULO_PRICES_OVERRIDE = ' + json.dumps(price_table) + ';</script>'
     eyebrow = lambda t, extra='': f'<p class="text-sm font-semibold uppercase tracking-wider text-accent-600{extra}">{t}</p>'
     h2 = lambda t: f'<h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">{t}</h2>'
     pro_name = f'{html.escape(p["title"])} Pro for WordPress'
@@ -580,10 +581,11 @@ def plugin_page(p: dict) -> str:
     if notes:
         nav.append(('whats-new', "What's new"))
     vd_title = vendure_title(slug)
+    trail = [('WordPress plugins', f'{BASE}/'), (p['title'], None)]
     body = f'''
 <section class="vp-hero pf-wp" id="overview">
 <div class="container-page relative page-y">
-{vp.crumbs([('WordPress plugins', f'{BASE}/'), (p['title'], None)])}
+{vp.crumbs(trail)}
 <div class="flex items-center gap-4 flex-wrap" style="margin-bottom:20px">
 <img class="vp-plugin-logo" style="margin-bottom:0" src="/vendure-plugins/logos/{slug}.svg" alt="" width="56" height="56">
 <span class="pf-badge">For WordPress</span>
@@ -603,8 +605,16 @@ def plugin_page(p: dict) -> str:
 {vp.section_nav(nav, 'wp')}
 {sections(blocks)}
 '''
-    title = f'HULO {p["title"]} for WordPress: free plugin and Pro add-on · Hulo Global'
-    return (vp.header(title, f'https://huloglobal.com{BASE}/{slug}/', free['short'], secnav=True)
+    title = f'{p["title"]} for WordPress (free + Pro) · Hulo Global'
+    canonical = f'https://huloglobal.com{BASE}/{slug}/'
+    # Product: the free plugin, and the Pro plans exactly as the pricing
+    # section shows them, in each currency the picker can show
+    # (build.plan_offers()).
+    offers = [vp.offer_jsonld('Free plugin', '£0', canonical)] + vp.plan_offers(price_table, [
+        ('monthly', 'Pro add-on, monthly subscription'), ('annual', 'Pro add-on, annual subscription'),
+        ('lifetime', 'Pro add-on, lifetime licence')], buy)
+    product = vp.product_jsonld(f'HULO {p["title"]} for WordPress', plain(free['short']), canonical, offers)
+    return (vp.header(title, canonical, free['short'], secnav=True, crumbs=trail, jsonld=[product])
             + vp.platform_band('wp', slug, p['title'], vd_title, other_exists=vd_title is not None)
             + body + footer())
 
@@ -613,7 +623,7 @@ def index_page(items: list[dict]) -> str:
     def card(p: dict) -> str:
         monthly = {cc: row['monthly'] for cc, row in p['pricing'].items() if cc in vp.PURCHASABLE_CURRENCIES}
         notes_href = f'{BASE}/{p["slug"]}/#whats-new' if p['releases'] else f'{BASE}/{p["slug"]}/'
-        return f'''<article class="vp-card pf-card" data-cats="{' '.join(vp.categories_of(p['slug']))}" data-keywords="{html.escape(vp.card_keywords(p['slug']))}">
+        return f'''<article class="vp-card pf-card" data-cats="{' '.join(vp.categories_of(p['slug']))}" data-keywords="{html.escape(vp.card_keywords(p['slug'], 'hulo-' + p['slug']))}">
 <div class="vp-card-top">
 <img class="vp-plugin-logo" src="/vendure-plugins/logos/{p['slug']}.svg" alt="" width="56" height="56">
 <a href="{notes_href}" class="hu-ver-link">What's new<span class="sr-only"> in {html.escape(p['title'])} for WordPress, version</span> <span class="hu-ver">v{p['fver']}</span></a>
@@ -646,7 +656,8 @@ def index_page(items: list[dict]) -> str:
 </section>
 '''
     return (vp.header('WordPress plugins · Hulo Global', f'https://huloglobal.com{BASE}/',
-                      'Free WordPress plugins with Pro add-ons: payments, checkout guard, fraud prevention, business credit, quotations, e-mail tracking, review requests, visitor analytics and geo-blocking.')
+                      'Nine free plugins for any WordPress site, each with a Pro add-on: payments, checkout guard, '
+                      'fraud prevention, business credit, quotations and more.')
             + vp.platform_band('wp') + body + footer())
 
 

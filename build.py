@@ -231,8 +231,11 @@ def emit_assets() -> None:
 import time as _time
 CSS_VERSION = _time.strftime('%Y%m%d%H%M')
 ASTRO_CSS = '/vendure-plugins/assets/pages.css?v=' + CSS_VERSION
-BUY_BASE = 'https://elite.charity/licence/buy'
-CHECKOUT_URL = 'https://elite.charity/licence/checkout'
+# The licence pages (buy, forgot, privacy, portal) are served on
+# huloglobal.com/licence/; elite.charity forwards the old addresses there.
+SITE = 'https://huloglobal.com'
+LICENCE_PAGES = SITE + '/licence'
+BUY_BASE = LICENCE_PAGES + '/buy'
 
 CURRENCIES = {
     'GBP': {'monthly': '£9.95',  'lifetime': '£199', 'symbol': '£',  'label': 'GBP — British pound'},
@@ -422,7 +425,7 @@ def migration_text(p: dict) -> tuple[str, str, str]:
 
 # Plugins with the † in the comparison table: those whose third-party calls
 # go beyond the alerts and mail you configure yourself.
-NOTED_THIRD_PARTY = ['payments', 'checkout-guard', 'business-credit', 'fraud-prevention', 'review-requests']
+NOTED_THIRD_PARTY = ['payments', 'checkout-guard', 'business-credit', 'fraud-prevention', 'review-requests', 'email-tracking']
 
 # Third-party services each plugin calls from the store's own server (from
 # its source: the hosts it calls), for the product FAQ and the comparison
@@ -436,6 +439,9 @@ THIRD_PARTY = {
                          'and can be switched off.'),
     'review-requests': 'If you show your live rating, it is read from Trustpilot or Google; invitations go out through your own SMTP server.',
     'visitor-analytics': 'Abandoned-cart alerts go to Slack only if you set a Slack webhook.',
+    'email-tracking': ('None unless you switch them on. Optional IP enrichment looks up the IP address of each open and click '
+                       'at ipinfo.io, ip-api.com or a lookup you supply; Amazon SES webhooks fetch Amazon\'s signing certificate to '
+                       'verify each message.'),
 }
 
 def package_json(pkg: str) -> dict:
@@ -619,6 +625,8 @@ PLUGINS = [
         'version': '0.1.0',
         'title': 'Quotations',
         'tagline': 'End-to-end quotation engine — build quotes from your catalogue, email a signed accept/decline link, chase automatically, convert wins to draft orders at the exact quoted total.',
+        # Meta description (155 characters or fewer), from the tagline.
+        'seo_description': 'Quotation engine for Vendure: build quotes from your catalogue, email a signed accept/decline link, chase automatically and convert wins to draft orders.',
         'description': (
             'Everything a B2B-ish shop needs to quote like a pro. Build quotes in the '
             'admin from your live catalogue (or free-text lines) with per-line and '
@@ -676,51 +684,52 @@ PLUGINS = [
         'class': 'EmailTrackingPlugin',
         'version': '0.8.2',
         'title': 'Email Tracking',
-        'tagline': 'Per-link transactional email tracking with human-vs-machine classification, sensitive-link redaction and a per-order activity timeline.',
+        'tagline': 'Every transactional email your Vendure server sends, recorded as raw events: verified provider webhooks, human-vs-machine classification and a per-order activity timeline with a PDF evidence report.',
+        'seo_description': 'Track every email Vendure sends: deliveries, opens, clicks and bounces, verified provider webhooks, and a per-order timeline with a PDF evidence report.',
         'description': (
-            'Drop-in tracker for every email your Vendure server sends. Wraps the '
-            '`@vendure/email-plugin` pipeline plus a service for ad-hoc sends. '
-            'Records every send, open and click as a raw event — never deduped — '
-            'so the underlying audit trail is always intact. Each link in each '
-            'email gets its own opaque token so the click handler can identify '
-            '**exactly which link was clicked** (invoice view, order view, '
-            'password reset, footer terms link) rather than merely "a link was '
-            'clicked". Password-reset and invoice-access links are flagged '
-            'sensitive so the raw destination never lands in the event log. '
-            'Every open + click is classified `human_likely` / `machine_likely` '
-            '/ `unknown` with reason codes (Gmail image proxy, Apple Mail Privacy '
-            'Protection, Microsoft Safe Links, Proofpoint, Mimecast, Barracuda, '
-            'datacentre, VPN, bot UA, …) so you can tell a real customer from a '
-            'security scanner.'
+            'Drop-in tracker for every email your Vendure server sends. It wraps the '
+            '`@vendure/email-plugin` pipeline, and your own plugin code can send through '
+            '`EmailTrackingService` for the same tracking. Every send, delivery, bounce, open '
+            'and click is stored as its own event in the `email_event` table, never '
+            'deduplicated, so the audit trail stays intact. Delivery events can come straight '
+            'from Postmark, SendGrid, Mailgun or Amazon SES, each verified against the '
+            "provider's own signature scheme. Every open and click is classified "
+            '`human_likely`, `machine_likely` or `unknown` with reason codes (Gmail image proxy, '
+            'Apple Mail Privacy Protection, Microsoft Safe Links, Proofpoint, bot user agents, …), '
+            'so you can tell a real customer from a security scanner. On every order page, an '
+            'activity timeline merges the emails with Vendure\'s own order history, and exports '
+            'to CSV, JSON or a PDF evidence report.'
         ),
         'features': [
-            ('Per-link tokenisation', 'Every clickable link in every email gets a random 32-byte token; the destination is stored server-side. The click endpoint identifies exactly which link was clicked — link_type, link_label, link_text, link_index, template_section, destination host + path — and records it on the event row.'),
-            ('Sensitive-link redaction', 'Flag password-reset, invoice-access-token and licence-key URLs with `isSensitive: true`. The raw destination is replaced with `[sensitive: <host>]` in the event log; only the URL hash + host are stored. The redirect still works — the raw destination just never lands on an admin-visible row.'),
-            ('Human / machine / unknown classification', 'Every open and click is scored with the SDK\'s built-in classifier. Reason chips surface why an event was flagged machine-likely: `gmail-proxy`, `ampp` (Apple Mail Privacy Protection), `safelinks`, `outlook-proxy`, `proofpoint`, `mimecast`, `barracuda`, `symantec`, `datacentre`, `vpn`, `tor`, `bot-ua`, `headless`, `prefetch`, `scanner-ua`. Raw event count still recorded — the classification is advisory, never the sole basis for a decision.'),
-            ('IP enrichment (ip-api.com or ipinfo)', 'Every event ingested triggers an async geo lookup (country, region, city, ASN, organisation, timezone, proxy / VPN / datacentre / mobile flags). Provider is pluggable via `HULO_IP_ENRICHMENT_PROVIDER`. Skips private / loopback / link-local. Never blocks event recording — enrichment happens fire-and-forget.'),
-            ('Provider webhook receiver', 'Ingest delivered / bounced / deferred / dropped / complaint / open / click events from Postmark, SendGrid, Mailgun and Amazon SES. Each provider\'s signature scheme is verified; unconfigured providers 401; unknown slugs 404. Idempotent within 24h so retries don\'t double-count.'),
-            ('Full open + click history per email', 'Raw events are never deduplicated. Multiple pixel fires from the same recipient create multiple rows; the admin UI groups for display but the underlying audit trail stays intact.'),
-            ('Suppression list', 'Hard bounces and complaints auto-add to the suppression table. Subsequent sends are silently skipped and logged as `status=suppressed`.'),
-            ('Per-template analytics', 'Open rate, CTR, click-to-open ratio and bounce rate per email type — order-confirmation, OTP, invoice, password-reset and your custom types.'),
-            ('Bounce + complaint webhook', 'POST DSN events to `/email-track/bounce` from your postmaster integration for legacy setups.'),
-            ('Admin UI: Email Log + per-customer Emails tab', 'Filter by recipient, customer, order, status, type, date range. Expand any row for the full event timeline.'),
-            ('Order Activity History panel', 'On every order-detail page: chronological timeline of every transactional email event with classification badges, filters (opens only / clicks only / payment / admin notes), IP-derived location with cautionary banner, CSV export, PDF Evidence Report via short-lived signed URLs, and elevated-permission full-export for legal evidence preservation. Pagination for high-volume customers — 100 events per page with a "Load more" button.'),
-            ('CSV + JSON + PDF export', 'CSV (redacted) for daily browsing, JSON via GraphQL for machine processing, PDF Evidence Report ("Order Activity and Delivery Evidence Report") for legal preservation. Sensitive fields respect the redaction rules; full export requires elevated permission.'),
-            ('Works with any SMTP transport', 'Gmail, SES, SendGrid, Postmark, Mailgun, raw SMTP. Just plug `TrackingEmailSender()` into your email-plugin config.'),
-            ('Graceful degradation', 'No runtime import from invoice / support-ticket / order plugins. Hosts that don\'t have those simply never pass the id; entity foreign-id columns are plain nullable ints. If a table isn\'t there yet, persistence fails silently and the redirect still works via signature verification.'),
+            ('Universal capture', 'Every email produced by `@vendure/email-plugin` (order confirmation, password reset, OTP, invoice and the rest) is logged automatically through `TrackingEmailSender`, with no per-handler wiring. Inject `EmailTrackingService` for sends from your own plugin code and get the same tracking.'),
+            ('Signed open + click tracking', 'A 1×1 pixel and a click redirector, both signed with a per-install secret, so forged opens and clicks are not counted and the redirector cannot be pointed at another site. Per-link tokens (`EmailLinkService.issueLinkToken()`) record exactly which link was clicked, and sensitive links (password reset, invoice access) are stored only in redacted form. Token-like query parameters are redacted in every recorded URL.'),
+            ('Raw event timeline', 'One `email_event` row per send, delivery, deferral, bounce, complaint, unsubscribe, open and click, with its order, customer, channel, source, time, Message-ID, hashed IP, location, client and classification. Raw events are never merged; a daily cap per email keeps one leaked link from filling the table.'),
+            ('Human / machine / unknown classification', 'Every open and click is scored with the licence SDK\'s classifier. Reason chips show why an event looks machine-driven: `gmail-proxy`, `ampp` (Apple Mail Privacy Protection), `safelinks`, `proofpoint`, `bot-ua`, `headless`, `prefetch` and, with IP enrichment on, `datacentre`, `vpn`, `proxy` and `tor`. The classification is advisory: nothing is blocked.'),
+            ('Provider delivery webhooks', 'Delivered, deferred, bounced, dropped, complaint and unsubscribe events from Postmark (Basic auth), SendGrid (ECDSA over the exact request body), Mailgun (HMAC with a timestamp window and replay check) and Amazon SES through SNS (full message-signature check against Amazon\'s certificate). Unknown providers get 404, unconfigured ones 401, and each provider event is stored once however often it is retried. Hard bounces and complaints add the address to the suppression list.'),
+            ('IP enrichment (opt-in)', 'Off by default, so the plugin makes no third-party calls. Switch it on to look up the network of each open and click (ASN, organisation, proxy, VPN, datacentre and mobile flags) at ipinfo.io, ip-api.com or a lookup you supply. Private addresses are skipped, results are cached, a per-minute budget is kept, and lookups never hold up an event.'),
+            ('Order activity on every order page', 'A panel on the order page and a full activity page merge the order\'s email events with Vendure\'s own order history: state changes, payments, fulfilments, refunds, cancellations and notes. Filter by emails, opens, clicks, delivery, order and payment, or notes, 100 events at a time with Load more. IP-derived locations carry a cautionary note.'),
+            ('CSV, JSON and PDF evidence exports', 'A redacted CSV and JSON of the timeline, a full JSON export behind the new `ExportEmailEvidence` permission, and an "Order activity and delivery evidence report" PDF opened through a five-minute signed link. The PDF prints a SHA-256 of the timeline, so it can be matched to a later JSON export.'),
+            ('Per-customer Emails tab', 'Every customer page gets an Emails tab listing what was sent to them, with links to each order and its activity.'),
+            ('Suppression list', 'Hard bounces and complaints auto-add to the suppression table. Later sends to those addresses are refused and logged as `status=suppressed`; soft bounces never suppress.'),
+            ('Per-template analytics', 'Open rate, click rate and click-to-open ratio per email type: order confirmation, OTP, invoice, password reset and your own types.'),
+            ('Signed bounce webhook', 'POST bounce and complaint events to `/email-track/bounce` from your own postmaster integration, signed with an `X-Signature` HMAC-SHA256 header.'),
+            ('Admin UI: Email Log', 'Filter by recipient, customer, order, status, type and date range, expand any row for its open and click history, and export CSV. Exports are never cached by a CDN.'),
+            ('Works with any SMTP transport', 'Gmail, SES, SendGrid, Postmark, Mailgun or plain SMTP: plug `TrackingEmailSender()` into your email-plugin config.'),
         ],
         'endpoints': [
-            ('GET',  '/email-track/open/:id.gif',     'Pixel — logs an open then serves a 1×1 GIF'),
-            ('GET',  '/email-track/click/:id?u=<url>&s=<sig>', 'Click redirector — verifies HMAC signature, logs event with per-link metadata + classification, then 302s'),
-            ('POST', '/email-track/bounce',           'Bounce / complaint webhook — DSN bridge'),
-            ('POST', '/email-events/webhook/postmark',  'Postmark event webhook (Basic Auth verified)'),
-            ('POST', '/email-events/webhook/sendgrid',  'SendGrid event webhook (ECDSA signature verified)'),
-            ('POST', '/email-events/webhook/mailgun',   'Mailgun event webhook (HMAC-SHA256 verified)'),
-            ('POST', '/email-events/webhook/ses',       'Amazon SES via SNS (topic ARN allowlist)'),
+            ('GET',  '/email-track/open/:token.gif',  'Pixel: records a signed open, then serves a 1×1 GIF'),
+            ('GET',  '/email-track/click/:token?u=<url>&s=<sig>', 'Click redirector: checks the signed destination, records the click, then 302s'),
+            ('POST', '/email-track/webhook/:provider', 'Provider delivery events: postmark, sendgrid, mailgun or ses, verified by the provider\'s signature'),
+            ('POST', '/email-track/bounce',           'Bounce / complaint webhook, signed with X-Signature (HMAC-SHA256)'),
+            ('GET',  '/email-track/orders/:orderId/activity', 'Admin: the order\'s activity timeline (ReadOrder + ReadCustomer)'),
+            ('GET',  '/email-track/orders/:orderId/activity.csv', 'Admin: redacted CSV of the timeline'),
+            ('GET',  '/email-track/orders/:orderId/activity.json', 'Admin: redacted JSON; ?full=1 needs ExportEmailEvidence'),
+            ('POST', '/email-track/orders/:orderId/evidence-link', 'Admin: a five-minute signed link to the PDF evidence report'),
+            ('GET',  '/email-track/orders/:orderId/evidence.pdf', 'The PDF evidence report, opened through its signed link'),
             ('GET',  '/email-track/log',              'Admin: paginated log with filters'),
-            ('GET',  '/email-track/log/summary',      'Admin: status totals tile'),
-            ('GET',  '/email-track/log/:id',          'Admin: full detail (incl. opens + clicks arrays)'),
-            ('GET',  '/email-track/log/stats/by-template', 'Admin: per-template aggregates (open / click rate, CTR)'),
+            ('GET',  '/email-track/log/summary',      'Admin: status totals'),
+            ('GET',  '/email-track/log/:id',          'Admin: full detail, incl. opens and clicks'),
+            ('GET',  '/email-track/log/stats/by-template', 'Admin: per-template open and click rates'),
             ('GET',  '/email-track/log/export.csv',   'Admin: CSV export'),
             ('GET',  '/email-track/suppression',      'Admin: list suppression entries'),
             ('POST', '/email-track/suppression',      'Admin: manually add a recipient'),
@@ -853,6 +862,8 @@ PLUGINS = [
         'version': '0.1.0',
         'title': 'Fraud Prevention',
         'tagline': 'Signal-based risk scoring on every order, monitor/enforce modes, review queue with customisable customer comms, alerts to Slack/Discord/Teams/Telegram, daily threat feeds — chargebacks stopped before fulfilment.',
+        # Meta description (155 characters or fewer), from the tagline.
+        'seo_description': 'Risk scoring on every Vendure order: monitor and enforce modes, a review queue, alerts to Slack, Discord, Teams or Telegram, and daily threat feeds.',
         'description': (
             'Every placed order is risk-scored server-side the moment it lands — '
             'no storefront integration required. Weighted signals (order velocity '
@@ -913,6 +924,8 @@ PLUGINS = [
         'version': '0.1.0',
         'title': 'Business Credit',
         'tagline': 'The credit-customer platform for Vendure B2B: applications, invitations and auto-approval, per-customer limits with an audit trail, multi-user company accounts, Pay on Account with net-terms invoices, prepaid funds, settlements by any method with Stripe pay links, payment plans, statements, dunning and a reward-points programme — in one admin dashboard and one storefront API.',
+        # Meta description (155 characters or fewer), from the tagline.
+        'seo_description': 'The credit-customer platform for Vendure B2B: applications, credit limits, company accounts, Pay on Account invoices, statements, dunning, reward points.',
         'description': (
             'Vendure has no concept of a credit account. Business buyers expect one: '
             'apply for terms, get a limit, order without a card, receive an invoice '
@@ -997,6 +1010,8 @@ PLUGINS = [
         'version': '0.1.0',
         'title': 'Payments',
         'tagline': 'One payments plugin for Vendure: eleven payment systems — Stripe, Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com, crypto, bank transfer and pay-later — behind a single contract, with a hosted checkout page, wallets, 3-D Secure, captures, refunds, disputes, saved cards, subscriptions, pay-by-link, routing and one ledger.',
+        # Meta description (155 characters or fewer), from the tagline.
+        'seo_description': 'Eleven payment systems for Vendure behind one contract, from Stripe, Adyen and PayPal to bank transfer, with a hosted checkout page and one ledger.',
         'description': (
             'Vendure ships a Stripe plugin, a Mollie plugin and a Braintree plugin, each '
             'with its own shape, its own gaps and no view across them. Payments gives '
@@ -1059,6 +1074,8 @@ PLUGINS = [
         'version': '0.1.0',
         'title': 'Checkout Guard',
         'tagline': 'The safety layer around Vendure checkout and payments: Stripe manual-capture holds that actually place the order, bank transfer with auto-expiry, failed-payment and orphaned-charge visibility with nightly Stripe reconciliation, session-bound order lookup, checkout rate limits and a funnel — in one admin dashboard.',
+        # Meta description (155 characters or fewer), from the tagline.
+        'seo_description': 'The safety layer for Vendure checkout: Stripe manual-capture holds, bank transfer with auto-expiry, nightly Stripe reconciliation and checkout rate limits.',
         'description': (
             'Vendure\'s Stripe integration settles a payment when the intent succeeds — '
             'and nothing else. Put a manual-capture hold on a large order and the '
@@ -1161,6 +1178,124 @@ PLUGINS = [
 ]
 
 
+# ── Structured data (JSON-LD) ────────────────────────────────────────
+# One @graph per page, just before </head>: Organization on every page,
+# BreadcrumbList from the breadcrumb trail the page shows, and Product on the
+# plugin pages with the offers exactly as the price cards show them in GBP.
+# Facts only: no ratings, no reviews, nothing the page does not say.
+
+# Keep in sync with organizationJsonLd in /root/huloglobal-site/src/layouts/Base.astro:
+# the same Organization node is on every page of huloglobal.com.
+ORGANIZATION_JSONLD = {
+    '@type': 'Organization',
+    '@id': SITE + '/#organization',
+    'name': 'Hulo Global Limited',
+    'alternateName': 'Hulo Global',
+    'url': SITE,
+    'logo': {'@type': 'ImageObject', 'url': SITE + '/icon-512.png', 'width': 512, 'height': 512},
+    'description': 'UK software development company specialising in custom software, cloud platforms, and web and mobile applications.',
+    'address': {
+        '@type': 'PostalAddress',
+        'streetAddress': 'Unit A, 82 James Carter Road',
+        'addressLocality': 'Mildenhall',
+        'postalCode': 'IP28 7DE',
+        'addressCountry': 'GB',
+    },
+    'identifier': {'@type': 'PropertyValue', 'propertyID': 'UK Companies House', 'value': '17134928'},
+    'contactPoint': {
+        '@type': 'ContactPoint',
+        'contactType': 'customer support',
+        'email': 'support@huloglobal.com',
+        'areaServed': 'GB',
+        'availableLanguage': 'en',
+    },
+    'sameAs': ['https://github.com/huloglobal',
+               'https://find-and-update.company-information.service.gov.uk/company/17134928'],
+}
+OG_IMAGE = SITE + '/og-image.png'
+
+
+def breadcrumb_jsonld(items, canonical: str) -> dict:
+    """BreadcrumbList for the trail crumbs() shows: [(label, href|None)], with
+    absolute item URLs; the current page (href None) is the canonical URL."""
+    return {'@type': 'BreadcrumbList', 'itemListElement': [
+        {'@type': 'ListItem', 'position': i, 'name': label,
+         'item': canonical if href is None else SITE + href}
+        for i, (label, href) in enumerate(items, 1)]}
+
+
+def price_amount(price: str, symbol: str) -> str:
+    """'£14.95' with '£' → '14.95', 'A$29.95' with 'A$' → '29.95': a price as
+    the card shows it, as an Offer's price. Anything else stops the build."""
+    m = _re.fullmatch(_re.escape(symbol) + r'\s*([0-9]+(?:\.[0-9]{2})?)', (price or '').strip())
+    if not m:
+        raise SystemExit(f'not a {symbol} price: {price!r}')
+    return m.group(1)
+
+
+# Subscription plans in the Product offers: ISO 8601 period and UN/CEFACT unit code.
+BILLING_PERIOD = {'monthly': ('P1M', 'MON'), 'annual': ('P1Y', 'ANN')}
+
+
+def offer_jsonld(name: str, price: str, url: str, currency: str = 'GBP', symbol: str = '£') -> dict:
+    return {'@type': 'Offer', 'name': name, 'price': price_amount(price, symbol), 'priceCurrency': currency,
+            'url': url, 'availability': 'https://schema.org/InStock'}
+
+
+def plan_offers(table: dict, plans: list[tuple[str, str]], buy_url: str) -> list[dict]:
+    """A page's paid plans as Offers in every currency its picker shows a real
+    price in, GBP first. `table` is the page's display_price_table(), the
+    prices the currency picker writes into the cards; with scripts it picks
+    the browser's currency (USD for an en-US browser, as Google renders
+    pages), so each price a visitor or crawler can see has its Offer.
+    Estimates (approx) are left out: nobody is charged them. plans:
+    [(plan, Offer name)]; a plan the table has no price for is skipped. Each
+    Offer links the checkout for that plan in that currency."""
+    offers = []
+    for cc, row in table.items():
+        if row.get('approx'):
+            continue
+        for plan, name in plans:
+            if row.get(plan):
+                offer = offer_jsonld(name, row[plan], f'{buy_url}?plan={plan}&currency={cc}', cc, row['symbol'])
+                if plan in BILLING_PERIOD:
+                    # A subscription's price is per period; say which, so it is not read as a one-off price.
+                    duration, unit = BILLING_PERIOD[plan]
+                    offer['priceSpecification'] = {'@type': 'UnitPriceSpecification', 'price': offer['price'],
+                                                   'priceCurrency': cc, 'billingDuration': duration, 'unitCode': unit}
+                offers.append(offer)
+    return offers
+
+
+def product_jsonld(name: str, description: str, url: str, offers: list[dict]) -> dict:
+    return {'@type': 'Product', 'name': name, 'description': description,
+            'brand': {'@type': 'Brand', 'name': 'Hulo Global'}, 'image': OG_IMAGE,
+            'url': url, 'offers': offers}
+
+
+def plain_text(s: str) -> str:
+    """Copy with the changelog markdown subset (`code`, **bold**) as plain text."""
+    return _re.sub(r'\*\*([^*]+)\*\*', r'\1', (s or '').replace('`', ''))
+
+
+def jsonld_script(nodes: list[dict]) -> str:
+    """One <script type="application/ld+json"> holding the page's @graph. '<',
+    '>' and '&' are written as JSON escapes, so no text in it can end the
+    script element."""
+    data = json.dumps({'@context': 'https://schema.org', '@graph': nodes}, ensure_ascii=False,
+                      separators=(',', ':'))
+    data = data.replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+    return f'<script type="application/ld+json">{data}</script>'
+
+
+# The shared <head> and site header (a str.format template: CSS braces are
+# doubled). The icon and manifest links are the same four as huloglobal.com's
+# own pages (Base.astro); the files are at the site root, so the main site
+# must be live with them before these pages are (deploy.sh checks). The
+# robots meta is Base.astro's default too. The whole <body> is
+# one Cloudflare email_off region (opened here, closed in FOOTER), so no
+# address, package name or code sample on these pages is rewritten; never
+# add an inner email_off marker (it would end the region early).
 HEADER = '''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1171,19 +1306,26 @@ HEADER = '''<!DOCTYPE html>
 <title>{title}</title>
 <meta name="description" content="{description}">
 <link rel="canonical" href="{canonical}">
-<link rel="icon" type="image/svg+xml" href="/vendure-plugins/logos/hulo-global.svg?v=4">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hulo Global">
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="{description}">
 <meta property="og:url" content="{canonical}">
-<meta property="og:image" content="https://huloglobal.com/og-image.png">
+<meta property="og:image" content="''' + OG_IMAGE + '''">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Hulo Global — dependable software, engineered with care">
 <meta property="og:locale" content="en_GB">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{title}">
 <meta name="twitter:description" content="{description}">
-<meta name="twitter:image" content="https://huloglobal.com/og-image.png">
-<meta name="robots" content="index, follow">
+<meta name="twitter:image" content="''' + OG_IMAGE + '''">
+<meta name="twitter:image:alt" content="Hulo Global — dependable software, engineered with care">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
 <script>(function (r) {{
   /* hu-scripts: scripts run (the currency picker works). hu-js: hulo-ui.js
      is expected; removed again if it fails to load (onerror below) or has
@@ -1201,9 +1343,11 @@ HEADER = '''<!DOCTYPE html>
   outline-offset: 3px;
   border-radius: 4px;
 }}
-/* Respect reduced motion preference */
+/* Respect reduced motion preference. No transitions at all (not just very
+   short ones): a layout change the script makes at start-up must not finish
+   a frame after a #link has already scrolled to its target. */
 @media (prefers-reduced-motion: reduce) {{
-  *, *::before, *::after {{ animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }}
+  *, *::before, *::after {{ animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; transition-property: none !important; }}
 }}
 .vp-proof-item {{ display:inline-flex; align-items:center; gap:.4rem; min-height:24px; }} .vp-proof-item::before {{ content:""; width:6px; height:6px; border-radius:999px; background:#22c55e; display:inline-block; }} a.vp-proof-item {{ text-decoration:underline; text-underline-offset:2px; }}
 .vp-tier-list {{ list-style:none; padding:0; margin:0; }} .vp-tier-list li {{ position:relative; padding-left:1.4rem; margin:.45rem 0; font-size:.95rem; color:#334155; line-height:1.5; }} .vp-tier-list li::before {{ content:"✓"; position:absolute; left:0; color:#16a34a; font-weight:700; }}
@@ -1227,11 +1371,15 @@ HEADER = '''<!DOCTYPE html>
 @media (min-width: 1024px) {{ .vp-grid-2 {{ grid-template-columns: minmax(0, 1fr) 380px; gap: 64px; align-items: start; }} }}
 /* The price card follows the reader beside the features once the script
    shows one plan at a time; without it (all three plans listed) only on a
-   screen tall enough to hold the whole card. */
-.vp-pricing-aside {{ position: static; top: calc(var(--hu-header-h, 77px) + var(--hu-secnav-h, 0px) + 16px); }}
+   screen tall enough to hold the whole card. It sticks under the bars that
+   are sticky right now (--hu-hdr / --hu-nav, hulo-ui.css), and the script
+   lets it scroll with the page (.hu-aside-static) whenever the card and its
+   footnote would not fit in the window from there. */
+.vp-pricing-aside {{ position: static; top: calc(var(--hu-hdr, 77px) + var(--hu-nav, 0px) + 16px); }}
 @media (min-width: 1024px) {{ .vp-pricing-aside:has(.hu-period-on) {{ position: sticky; }} }}
 @media (min-width: 1024px) and (min-height: 940px) {{ .vp-pricing-aside {{ position: sticky; }} }}
 @media (max-width: 1023px) {{ .vp-pricing-aside {{ position: static; top: auto; margin-top: 8px; }} }}
+.vp-pricing-aside.hu-aside-static {{ position: static !important; }}
 .vp-price-card {{ border: 1px solid var(--color-ink-100, #e2e8f0); border-radius: 18px; padding: 28px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.05), 0 8px 24px rgba(15,23,42,.04); }}
 .vp-price-card + .vp-price-card {{ margin-top: 18px; }}
 .vp-price-card.featured {{ border: 2px solid var(--color-accent-500, #f59e0b); padding: 27px; }}
@@ -1364,6 +1512,11 @@ main code {{ overflow-wrap: anywhere; }}
    .is-overflowing / .is-end on the scroller). */
 .vp-compare-table {{ display: block; }}
 .vp-compare-table th:first-child {{ position: sticky; left: 0; z-index: 1; background: #fff; }}
+/* Keyboard focus on a cell link never lands under the sticky feature
+   column: the browser's own scroll keeps clear of it (the script measures
+   the column, --hu-stick-w, and also scrolls a link that is only partly
+   under it into the clear). */
+.vp-compare-table {{ scroll-padding-inline-start: calc(var(--hu-stick-w, 11rem) + 0.5rem); }}
 .vp-compare-table.is-scrolled th:first-child {{ box-shadow: 10px 0 12px -12px rgba(15,23,42,.45); }}
 .vp-compare-table.is-overflowing:not(.is-end) {{ box-shadow: inset -22px 0 18px -18px rgba(15,23,42,.35); }}
 .vp-compare-cards {{ display: none; }}
@@ -1408,8 +1561,10 @@ main code {{ overflow-wrap: anywhere; }}
 .table-wrap::-webkit-scrollbar-thumb {{ background: var(--color-ink-300, #cbd5e1); border-radius: 4px; }}
 </style>
 <script src="''' + UI_JS + '''" defer onerror="document.documentElement.classList.remove('hu-js')"></script>
+{jsonld}
 </head>
 <body>
+<!--email_off-->
 <a href="#main" class="skip-link">Skip to content</a>
 <header class="sticky top-0 z-40 border-b border-ink-100 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70">
 <div class="container-page flex items-center justify-between py-4">
@@ -1473,9 +1628,9 @@ CURRENCY_JS = '''
     });
     var chargeCcy = p.approx ? 'GBP' : ccy;
     document.querySelectorAll('[data-currency-input]').forEach(function(el) { el.value = chargeCcy; });
-    // The checkout (another site) cannot read this site's saved currency:
-    // every buy link carries it (?currency=), next to its ?plan=.
-    document.querySelectorAll('a[href^="https://elite.charity/licence/buy/"]').forEach(function(a) {
+    // The checkout (the licence pages) cannot read this page's saved
+    // currency: every buy link carries it (?currency=), next to its ?plan=.
+    document.querySelectorAll('a[href^="''' + BUY_BASE + '''/"]').forEach(function(a) {
       try { var u = new URL(a.href); u.searchParams.set('currency', chargeCcy); a.href = u.toString(); } catch (e) {}
     });
     document.querySelectorAll('[data-approx-note]').forEach(function(el) { el.style.display = p.approx ? '' : 'none'; });
@@ -1586,25 +1741,33 @@ FOOTER = CURRENCY_JS + VERSION_REFRESH_JS + '''
 <div>
 <h2 class="text-xs uppercase tracking-wider text-ink-600 font-semibold mb-3">Customers</h2>
 <ul class="space-y-1 text-sm text-ink-700">
-<li><a href="https://elite.charity/licence/forgot" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Lost your key?</a></li>
-<li><a href="https://elite.charity/licence/privacy" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Your data &amp; privacy</a></li>
+<li><a href="''' + LICENCE_PAGES + '''/forgot" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Lost your key?</a></li>
+<li><a href="''' + LICENCE_PAGES + '''/privacy" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Your data &amp; privacy</a></li>
 <li><a href="/legal/" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">Plugin terms &amp; policies</a></li>
-<li><a href="mailto:hello@huloglobal.com" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800"><!--email_off-->hello@huloglobal.com<!--/email_off--></a></li>
+<li><a href="mailto:hello@huloglobal.com" class="underline underline-offset-4 decoration-ink-300 hover:decoration-ink-800">hello@huloglobal.com</a></li>
 </ul>
 </div>
 </div>
 </footer>
+<!--/email_off-->
 </body>
 </html>
 '''
 
 
-def header(title, canonical, description, secnav: bool = False):
+def header(title, canonical, description, secnav: bool = False, crumbs=None, jsonld=None):
     """The shared <head> and site header. secnav=True for a page with the
     section bar (product pages): html.hu-has-secnav, which hulo-ui.css uses
     to let the bar, not the header, stick on phones, with or without
-    scripts."""
-    out = HEADER.format(title=html.escape(title), canonical=canonical, description=html.escape(description))
+    scripts. crumbs: the same [(label, href|None)] trail the page shows with
+    crumbs(), for its BreadcrumbList. jsonld: more structured-data nodes
+    (a plugin page's Product). Every page gets the Organization node."""
+    nodes = [ORGANIZATION_JSONLD]
+    if crumbs:
+        nodes.append(breadcrumb_jsonld(crumbs, canonical))
+    nodes += list(jsonld or [])
+    out = HEADER.format(title=html.escape(title), canonical=canonical, description=html.escape(description),
+                        jsonld=jsonld_script(nodes))
     return out.replace('<html lang="en">', '<html lang="en" class="hu-has-secnav">', 1) if secnav else out
 
 
@@ -1681,10 +1844,12 @@ def categories_of(slug: str) -> list[str]:
     return [cid for cid, _, slugs in CATEGORIES if slug in slugs]
 
 
-def card_keywords(slug: str) -> str:
-    """Extra words the catalogue search matches on a card: the slug's words
-    and the names of the card's categories."""
-    return ' '.join([slug.replace('-', ' ')] + [label for cid, label, slugs in CATEGORIES if slug in slugs])
+def card_keywords(slug: str, package: str = '') -> str:
+    """Extra words the catalogue search matches on a card: the slug as it is
+    written in URLs (geo-block), its package name and the names of the card's
+    categories. The search treats hyphens as spaces (hulo-ui.js norm())."""
+    return ' '.join([slug] + ([package] if package else [])
+                    + [label for cid, label, slugs in CATEGORIES if slug in slugs])
 
 
 SEARCH_SVG = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
@@ -1973,10 +2138,12 @@ def _release_html(r: dict, idx: int, id_prefix: str) -> str:
 SHOW_FIRST = 5
 
 
-def kind_filter(releases: list[dict], name: str, cls: str = 'hu-cl-tools') -> str:
+def kind_filter(releases: list[dict], name: str, cls: str = 'hu-cl-tools', folded: int | None = None) -> str:
     """All / Security / Fixes / Features chips, only for kinds the notes
     contain. Shown from the first paint when scripts run (the hu-js class on
-    <html>), so the list below never jumps when the script arrives."""
+    <html>), so the list below never jumps when the script arrives. folded:
+    how many releases show while the rest wait behind "Show all N releases"
+    (the status line then says so on All, data-folded)."""
     counts = {k: 0 for k, _ in KIND_CHIPS}
     for r in releases:
         for g in r['groups']:
@@ -1993,9 +2160,11 @@ def kind_filter(releases: list[dict], name: str, cls: str = 'hu-cl-tools') -> st
                      f'<label class="hu-chip"><input type="radio" name="{name}-kind" value="{k}">'
                      f'<span>{label} <span class="hu-chip-n" aria-hidden="true">{n}</span>'
                      f'<span class="sr-only">, {n} {"change" if n == 1 else "changes"}</span></span></label>' for k, label, n in chips))
+    fold = (f' data-folded="Showing the latest {folded} of {total} releases."'
+            if folded is not None and folded < total else '')
     return (f'<div class="{cls} hu-needs-js" data-cl-tools><fieldset class="hu-chips" data-cl-filter>'
             f'<legend>Show changes</legend>{chip_html}</fieldset>'
-            f'<p class="hu-cl-status" role="status" data-cl-status data-all="Showing all {total} release{"" if total == 1 else "s"}."></p></div>')
+            f'<p class="hu-cl-status" role="status" data-cl-status data-all="Showing all {total} release{"" if total == 1 else "s"}."{fold}></p></div>')
 
 
 def release_notes(releases: list[dict], product: str, full_url: str | None = None,
@@ -2012,7 +2181,7 @@ def release_notes(releases: list[dict], product: str, full_url: str | None = Non
             if full_url else '')
     lead = lead_html or (f'<p class="hu-cl-lead">Latest release: <span class="font-mono">v{html.escape(latest["version"])}</span>'
                          f'{html.escape(when)}.{full}</p>')
-    tools = kind_filter(releases, id_prefix)
+    tools = kind_filter(releases, id_prefix, folded=SHOW_FIRST)
     first = ''.join(_release_html(r, i, id_prefix) for i, r in enumerate(releases[:SHOW_FIRST]))
     rest = ''
     if len(releases) > SHOW_FIRST:
@@ -2026,13 +2195,23 @@ def release_notes(releases: list[dict], product: str, full_url: str | None = Non
     return (f'{lead}<div data-changelog>{tools}<div class="hu-rels">{first}</div>{rest}</div>')
 
 
-def gbp_range(plan: str) -> str:
-    """'£2.95–£14.95' across the suite for one plan, from each plugin's GBP price."""
+def price_range(plan: str, ccy: str = 'GBP') -> str:
+    """'£2.95–£14.95' across the suite for one plan, from each plugin's price
+    in one currency."""
     def amount(s):
         m = _re.search(r'[0-9][0-9.]*', s)
         return float(m.group(0)) if m else 0.0
-    vals = sorted({p.get('pricing', CURRENCIES)['GBP'][plan] for p in PLUGINS}, key=amount)
+    vals = sorted({p.get('pricing', CURRENCIES)[ccy][plan] for p in PLUGINS}, key=amount)
     return vals[0] if len(vals) == 1 else f'{vals[0]}–{vals[-1]}'
+
+
+def ccy_range_html(plan: str) -> str:
+    """The suite's price range for one plan, in GBP, following the currency
+    picker (data-ccy-prices: the range in every currency the checkout bills)."""
+    ranges = {cc: price_range(plan, cc) for cc in PURCHASABLE_CURRENCIES
+              if all(cc in p.get('pricing', CURRENCIES) for p in PLUGINS)}
+    return (f'<span data-ccy-prices="{html.escape(json.dumps(ranges, ensure_ascii=False))}">'
+            f'{html.escape(ranges["GBP"])}</span>')
 
 
 def index_page():
@@ -2066,6 +2245,10 @@ def index_page():
             'Stripe manual-capture holds that place the order',
             'Bank transfer with auto-expiry + reminders',
             'Failed-payment log + nightly Stripe reconciliation',
+            # On by default since 0.2.1: after repeated declines from one IP (or
+            # on one order) payments are refused (the package README,
+            # "Card-testing gate").
+            'Card-testing gate that refuses payments after repeated declines',
             'Session-bound order lookup, rate limits, funnel',
         ],
         'quotations': [
@@ -2075,10 +2258,10 @@ def index_page():
             'Accepted quote → draft order at the exact quoted total',
         ],
         'email-tracking': [
-            'Per-link tokenised open + click tracking',
-            'Human / machine event classification (Gmail proxy, Safe Links, …)',
-            'IP enrichment + provider webhooks (Postmark / SendGrid / Mailgun / SES)',
-            'Order Activity History panel + PDF Evidence Report',
+            'Every send, delivery, bounce, open and click as a raw event',
+            'Verified Postmark / SendGrid / Mailgun / SES webhooks',
+            'Human / machine classification (Gmail proxy, Safe Links, …)',
+            'Order activity timeline + PDF evidence report',
         ],
         'geo-block': [
             '37 region presets (EU, EEA, GCC, NATO, …)',
@@ -2117,10 +2300,10 @@ def index_page():
         notes_href = (f"/vendure-plugins/{p['slug']}/#whats-new" if p.get('releases')
                       else f"/vendure-plugins/{p['slug']}/changelog/")
         cards.append(f'''
-<article class="vp-card pf-card" data-cats="{' '.join(categories_of(p['slug']))}" data-keywords="{html.escape(card_keywords(p['slug']))}">
+<article class="vp-card pf-card" data-cats="{' '.join(categories_of(p['slug']))}" data-keywords="{html.escape(card_keywords(p['slug'], p['pkg']))}">
   <div class="vp-card-top">
     <img class="vp-plugin-logo" src="/vendure-plugins/logos/{p['slug']}.svg" alt="" width="56" height="56">
-    <a href="{notes_href}" class="hu-ver-link">What's new<span class="sr-only"> in {html.escape(p['title'])} for Vendure, version</span> <!--email_off--><span class="hu-ver" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span><!--/email_off--></a>
+    <a href="{notes_href}" class="hu-ver-link">What's new<span class="sr-only"> in {html.escape(p['title'])} for Vendure, version</span> <span class="hu-ver" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span></a>
   </div>
   <h3>{html.escape(p['title'])}<span class="sr-only"> for Vendure</span></h3>
   <p class="vp-card-tagline">{_md_inline(p['tagline'])}</p>
@@ -2143,7 +2326,7 @@ def index_page():
         ('One-click in-app updates', same('yes')),
         # Counted in each package's source (2026-11-04): its entities and the
         # tables it creates on boot, not the licence store every plugin shares.
-        ('Database tables', {'quotations': '4', 'email-tracking': '3', 'geo-block': '1', 'visitor-analytics': '5',
+        ('Database tables', {'quotations': '4', 'email-tracking': '4', 'geo-block': '1', 'visitor-analytics': '5',
                              'fraud-prevention': '10', 'review-requests': '7', 'checkout-guard': '5',
                              'business-credit': '15', 'payments': '7'}),
         ('Privacy controls', {'quotations': 'Signed links, no tracking pixels', 'email-tracking': 'IP hash',
@@ -2206,7 +2389,7 @@ def index_page():
         compat_rows_html += (
             '<tr>'
             f'<th style="text-align:left"><a href="/vendure-plugins/{p["slug"]}/">{html.escape(p["title"])}</a></th>'
-            f'<td style="text-align:center"><!--email_off--><span class="vp-compat-ver font-mono" data-hulo-pkg="{html.escape(p["pkg"])}" data-hulo-version-prefix="v">v{p["version"]}</span><!--/email_off--></td>'
+            f'<td style="text-align:center"><span class="vp-compat-ver font-mono" data-hulo-pkg="{html.escape(p["pkg"])}" data-hulo-version-prefix="v">v{p["version"]}</span></td>'
             f'<td style="text-align:center"><span class="font-mono">{vendure_range}</span></td>'
             f'<td style="text-align:center">{verified}</td>'
             '</tr>'
@@ -2231,11 +2414,11 @@ def index_page():
         src_sentence = ''
 
     faqs = [
-        ('How are the plugins licensed?', f'Each plugin is licensed individually. Every install gets <strong>14 days with every feature on, no card and no key</strong>. To keep the premium features, subscribe from the plugin\'s admin page at any point — the first charge falls on the day the 14 days end, never before, and you can cancel any time — as a monthly ({gbp_range("monthly")}/mo) or annual (two months free) subscription. Or buy a one-off lifetime licence ({gbp_range("lifetime")}, never expires, 12 months of updates included). Every option gives you a JWT licence key that installs itself in the admin.'),
+        ('How are the plugins licensed?', f'Each plugin is licensed individually. Every install gets <strong>14 days with every feature on, no card and no key</strong>. To keep the premium features, subscribe from the plugin\'s admin page at any point — the first charge falls on the day the 14 days end, never before, and you can cancel any time — as a monthly ({ccy_range_html("monthly")}/mo) or annual (two months free) subscription. Or buy a one-off lifetime licence ({ccy_range_html("lifetime")}, never expires, 12 months of updates included). Every option gives you a JWT licence key that installs itself in the admin.'),
         ('How do I buy and activate a licence?', 'Open the plugin\'s page in your Vendure admin, pick monthly or annual on the licence banner and click <strong>Subscribe</strong> (or choose lifetime and click <strong>Buy lifetime</strong>). Stripe Checkout opens in a new tab; within a minute of payment the licence installs itself in the admin — no email round-trip, no <code>.env</code> edit, no restart. Renewed subscription keys are picked up automatically. Prefer to buy on the web? Use the plugin\'s buy page and paste the emailed key into the admin instead.'),
         ('How do I manage / cancel my subscription?', 'Every receipt email includes a Stripe Customer Portal link — click it to update your payment method, see invoices, or cancel. No need to email us. Lifetime customers have nothing to manage; reply to your receipt if you need a VAT invoice.'),
-        ('I lost my licence key — what now?', 'Re-send every active key on file at <a class="underline underline-offset-2" href="https://elite.charity/licence/forgot">elite.charity/licence/forgot</a>. We always show the same confirmation regardless of whether the email is on file (anti-enumeration), so check spam if nothing arrives. Limited to 5 requests per email per day.'),
-        ('Can I export or delete my data?', 'Yes — under UK GDPR you have a right to see, export and erase the personal data we hold. Visit <a class="underline underline-offset-2" href="https://elite.charity/licence/privacy">elite.charity/licence/privacy</a> and we\'ll email you a magic link to do both.'),
+        ('I lost my licence key — what now?', f'Re-send every active key on file at <a class="underline underline-offset-2" href="{LICENCE_PAGES}/forgot">huloglobal.com/licence/forgot</a>. We always show the same confirmation regardless of whether the email is on file (anti-enumeration), so check spam if nothing arrives. Limited to 5 requests per email per day.'),
+        ('Can I export or delete my data?', f'Yes — under UK GDPR you have a right to see, export and erase the personal data we hold. Visit <a class="underline underline-offset-2" href="{LICENCE_PAGES}/privacy">huloglobal.com/licence/privacy</a> and we\'ll email you a magic link to do both.'),
         ('Do the plugins call home?', 'Only about the licence, and never with customer data. The licence key itself is verified offline, against a public key built into the plugin. Once a day each plugin sends our licence server a heartbeat (the plugin\'s name and version, its licence id if it has one, and a fingerprint of the build) and, while it has no licence key, a check-in with an anonymous instance id (a hash) so the server can keep the 14-day evaluation clock. They carry anonymous usage counts, numbers only and never names, emails or orders, so the reminder and renewal emails can say what the plugin did. Once a week the plugin fetches the licence revocation list (cached and soft-fail, so a brief outage at our end never disables your store), after you click <strong>Subscribe</strong> in the admin it asks the licence server for your new key, and once a day it asks the npm registry whether a newer version is out. Set <code>HULO_HEARTBEAT_DISABLED=true</code> to stop the heartbeat; the licence keeps working.'),
         ('Where does customer data live?', 'On your Vendure server — same DB as the rest of your data. No third-party analytics provider. The visitor-analytics plugin\'s ingest endpoint is on your domain.'),
         ('What if I don\'t buy a licence?', 'Plugins still boot in a free tier — install, configure, browse data, and the admin UI is functional. The public storefront endpoints are limited (geo-block always reports <code>enabled:false</code>; visitor-analytics dashboards return 403). Buy a key when you\'re ready.'),
@@ -2297,7 +2480,7 @@ Battle-tested in our own UK e-commerce stack. One <code class="font-mono text-sm
 {''.join(mobile_cards)}
 </div>
 <p id="threat-intel-note" class="mt-6 text-xs text-ink-500 leading-relaxed max-w-3xl mx-auto md:mx-0">
-<strong>†</strong> These plugins also call third-party services from your server, never Hulo Global. Required for what they do: <strong>Payments</strong> sends each payment to the providers you connect (Stripe, Adyen, PayPal and the others); <strong>Checkout Guard</strong> uses your own Stripe account for holds and the nightly reconciliation; <strong>Business Credit</strong> creates card pay links and top-ups in your own Stripe account. Optional: <strong>Fraud Prevention</strong> fetches threat intelligence — IP-reputation lookups (<code class="font-mono">ip-api.com</code>) and nightly public blocklist feeds (FireHOL, Spamhaus, Tor, disposable-email domains), cached, and switchable off — and reads the card checks from your Stripe account; <strong>Review Requests</strong> reads your live rating from Trustpilot or Google if you show it, and sends invitation emails via your own SMTP. Alerts from any plugin go only to the channels you set up. The licence check-ins every plugin sends us are described under <a class="underline underline-offset-2" href="#call-home">“Do the plugins call home?”</a> below.
+<strong>†</strong> These plugins also call third-party services from your server, never Hulo Global. Required for what they do: <strong>Payments</strong> sends each payment to the providers you connect (Stripe, Adyen, PayPal and the others); <strong>Checkout Guard</strong> uses your own Stripe account for holds and the nightly reconciliation; <strong>Business Credit</strong> creates card pay links and top-ups in your own Stripe account. Optional: <strong>Fraud Prevention</strong> fetches threat intelligence — IP-reputation lookups (<code class="font-mono">ip-api.com</code>) and nightly public blocklist feeds (FireHOL, Spamhaus, Tor, disposable-email domains), cached, and switchable off — and reads the card checks from your Stripe account; <strong>Review Requests</strong> reads your live rating from Trustpilot or Google if you show it, and sends invitation emails via your own SMTP. <strong>Email Tracking</strong> looks up the IP address of each open and click at ipinfo.io or ip-api.com only if you switch IP enrichment on, and checks Amazon SES webhooks against Amazon's signing certificate. Alerts from any plugin go only to the channels you set up. The licence check-ins every plugin sends us are described under <a class="underline underline-offset-2" href="#call-home">“Do the plugins call home?”</a> below.
 </p>
 </div>
 </section>
@@ -2338,7 +2521,8 @@ A boot-time check emits a non-fatal warning if <code class="font-mono text-xs bg
 '''
     return header('Vendure plugins by Hulo Global',
                   'https://huloglobal.com/vendure-plugins/',
-                  'Production-grade Vendure plugins by Hulo Global: payments, checkout protection, fraud prevention, business credit, quotations, Trustpilot review requests, email tracking, visitor analytics and geo-blocking. Drop-in, self-hosted, licensed.') + platform_band('vd') + body + FOOTER
+                  'Nine self-hosted Vendure plugins by Hulo Global: payments, checkout protection, fraud prevention, '
+                  'business credit, quotations, reviews, email and more.') + platform_band('vd') + body + FOOTER
 
 
 def plugin_page(p):
@@ -2385,9 +2569,11 @@ compileUiExtensions({{
     if not has_full_annual(annual):
         annual = {}
     # Every plugin page carries an override: real prices for purchasable
-    # currencies, estimates only for anything without a Stripe amount.
+    # currencies, estimates only for anything without a Stripe amount. The
+    # Product offers are written from the same table.
+    price_table = display_price_table(price_mo_gbp, price_lt_gbp, p.get('pricing'), annual)
     pricing_override_js = ('<script>window.HULO_PRICES_OVERRIDE = '
-        + json.dumps(display_price_table(price_mo_gbp, price_lt_gbp, p.get('pricing'), annual)) + ';</script>')
+        + json.dumps(price_table) + ';</script>')
     def buy_link(plan: str, text: str) -> str:
         return f'<a class="underline underline-offset-2" href="{BUY_BASE}/{pkg_short}?plan={plan}">{text}<span class="sr-only"> licence for {html.escape(p["title"])}</span></a>'
     plans_text = (buy_link('monthly', 'monthly') + (', ' + buy_link('annual', 'annual') + ' (two months free)' if annual else '')
@@ -2474,11 +2660,11 @@ compileUiExtensions({{
         return ''.join(f'<div data-tab="{pm}"><p class="hu-tab-h">{pm}</p>{code_block(cmd, pm + " command", cls, wrap, tag="pre" if cls == "hu-code" else "div")}</div>'
                        for pm, cmd in rows)
 
-    install_box = f'''<!--email_off--><div class="pf-install hu-install" data-tabs data-tabs-group="pm" data-tabs-label="Install commands">
+    install_box = f'''<div class="pf-install hu-install" data-tabs data-tabs-group="pm" data-tabs-label="Install commands">
 <p class="hu-install-lead"><strong>Install on Vendure:</strong> add the package with npm, yarn or pnpm, then register <code>{p['class']}</code> in <code>vendure-config.ts</code>. <a href="#install" class="underline underline-offset-4">All steps</a></p>
 {pm_tabs('hu-code')}
 <div data-tab="Config" data-tab-nopersist><p class="hu-tab-h">Register it in vendure-config.ts</p>{code_block(config_block, 'vendure-config.ts snippet')}</div>
-</div><!--/email_off-->'''
+</div>'''
 
     rels = p.get('releases', [])
     notes = release_notes(rels, f"{p['title']} for Vendure", f"/vendure-plugins/{p['slug']}/changelog/")
@@ -2487,7 +2673,7 @@ compileUiExtensions({{
 <div class="container-page max-w-3xl">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">Changelog</p>
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">What's new.</h2>
-<!--email_off-->{notes}<!--/email_off-->
+{notes}
 </div>
 </section>
 ''' if notes else ''
@@ -2507,10 +2693,11 @@ compileUiExtensions({{
 <p class="vp-tiny-note">Card required. One trial per customer.</p>
 </div>''' if annual else ''
 
+    trail = [('Vendure plugins', '/vendure-plugins/'), (p['title'], None)]
     body = f'''
 <section class="vp-hero pf-vd" id="overview">
 <div class="container-page relative page-y">
-{crumbs([('Vendure plugins', '/vendure-plugins/'), (p['title'], None)])}
+{crumbs(trail)}
 <div class="flex items-center gap-4 flex-wrap" style="margin-bottom:20px">
 <img class="vp-plugin-logo" style="margin-bottom:0" src="/vendure-plugins/logos/{p['slug']}.svg" alt="" width="56" height="56">
 <span class="pf-badge">For Vendure</span>
@@ -2523,7 +2710,7 @@ compileUiExtensions({{
 <a href="{BUY_BASE}/{pkg_short}?plan=lifetime" class="btn btn-secondary">Buy lifetime</a>
 <a href="#install" class="btn btn-secondary">Install</a>
 <a href="/vendure-plugins/{short_id}/docs/" class="btn btn-secondary">Read the manual</a>
-<a href="{version_href}" class="hu-ver-link hu-ver-hero">What's new<span class="sr-only">, version</span> <!--email_off--><span class="hu-ver" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span><!--/email_off--></a>
+<a href="{version_href}" class="hu-ver-link hu-ver-hero">What's new<span class="sr-only">, version</span> <span class="hu-ver" data-hulo-pkg="{html.escape(p['pkg'])}" data-hulo-version-prefix="v">v{p['version']}</span></a>
 </div>
 {install_box}
 </div>
@@ -2571,7 +2758,6 @@ compileUiExtensions({{
 <div class="container-page max-w-3xl" style="counter-reset: step;">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">Install</p>
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">{step_count} steps, five minutes.</h2>
-<!--email_off-->
 <div class="vp-step mt-10">
 <h3 class="text-xl font-semibold text-ink-900 flex items-center">Add the package</h3>
 <p class="mt-2 text-ink-600">Or run the one-line installer that does steps 1–3 for you:</p>
@@ -2594,7 +2780,6 @@ compileUiExtensions({{
 {code_block(compile_block, 'compile-admin-ui.ts snippet', 'vp-code', 'mt-3', tag='div')}
 </div>
 {migration_step}
-<!--/email_off-->
 
 <div class="mt-10 rounded-lg border border-ink-200 bg-white p-6">
 <p class="text-sm text-ink-700"><strong>That's it.</strong> Restart Vendure and the plugin's page is in the admin with <strong>every feature on for 14 days</strong> — no card, no key. To keep it all on afterwards, open the page and click <strong>Subscribe</strong> (first charge when the 14 days end) — the key installs itself, no <code class="font-mono text-sm bg-ink-100 px-1 py-0.5 rounded">.env</code> edit, no redeploy.</p>
@@ -2635,9 +2820,17 @@ compileUiExtensions({{
 </div>
 </section>
 '''
-    return header(f"{p['title']} — Vendure plugin by Hulo Global",
-                  f"https://huloglobal.com/vendure-plugins/{p['slug']}/",
-                  p['tagline'], secnav=True) + platform_band('vd', p['slug'], p['title'], edition_title('wp', p['slug'], p['title'])) + body + FOOTER
+    canonical = f"https://huloglobal.com/vendure-plugins/{p['slug']}/"
+    # A tagline longer than a search snippet has a short form for the meta
+    # description (seo_description, taken from the tagline).
+    description = p.get('seo_description') or p['tagline']
+    # Product: the plans exactly as the price card shows them, in each
+    # currency the picker can show (plan_offers()).
+    offers = plan_offers(price_table, [('monthly', 'Monthly subscription'), ('annual', 'Annual subscription'),
+                                       ('lifetime', 'Lifetime licence')], f'{BUY_BASE}/{pkg_short}')
+    product = product_jsonld(f"{p['title']} for Vendure", plain_text(description), canonical, offers)
+    return header(f"{p['title']} — Vendure plugin by Hulo Global", canonical, description, secnav=True,
+                  crumbs=trail, jsonld=[product]) + platform_band('vd', p['slug'], p['title'], edition_title('wp', p['slug'], p['title'])) + body + FOOTER
 
 
 CHANGELOG_STYLE = """
@@ -2727,13 +2920,14 @@ def changelog_page(p):
     latest_line = (
         f"Latest release: <span class='font-mono'>v{html.escape(latest['version'])}</span> — {html.escape(pretty_date(latest['date']))}."
         if latest else 'No releases published yet.')
+    trail = [('Vendure plugins', '/vendure-plugins/'), (p['title'], f"/vendure-plugins/{p['slug']}/"), ('Changelog', None)]
     body = f'''
 <section class="vp-hero pf-vd">
 <div class="container-page relative page-y">
-{crumbs([('Vendure plugins', '/vendure-plugins/'), (p['title'], f"/vendure-plugins/{p['slug']}/"), ('Changelog', None)])}
+{crumbs(trail)}
 <span class="pf-badge">For Vendure</span>
 <h1 class="mt-4 max-w-3xl text-4xl sm:text-5xl font-bold tracking-tight text-ink-900 leading-[1.04]">{html.escape(p['title'])} for Vendure: changelog</h1>
-<p class="mt-4 max-w-2xl text-lg text-ink-600 leading-relaxed">Release notes for <!--email_off--><code class="font-mono text-base">{html.escape(p['pkg'])}</code><!--/email_off-->. {latest_line}</p>
+<p class="mt-4 max-w-2xl text-lg text-ink-600 leading-relaxed">Release notes for <code class="font-mono text-base">{html.escape(p['pkg'])}</code>. {latest_line}</p>
 <div class="mt-6 flex flex-wrap items-center gap-3">
 <a href="/vendure-plugins/{p['slug']}/" class="btn btn-secondary">Plugin page</a>
 <a href="/vendure-plugins/{p['slug']}/docs/" class="btn btn-secondary">Manual</a>
@@ -2744,16 +2938,14 @@ def changelog_page(p):
 <div class="container-page" data-changelog>
 {kind_filter(rels, 'cl', 'cl-tools')}
 <div class="cl-wrap"><div class="cl-rail">
-<!--email_off-->
 {''.join(rel_html)}
-<!--/email_off-->
 </div></div>
 </div>
 </section>
 '''
     return header(f"Changelog — {p['title']} — Hulo Global",
                   f"https://huloglobal.com/vendure-plugins/{p['slug']}/changelog/",
-                  f"Release history and version notes for {p['pkg']}.") + CHANGELOG_STYLE + platform_band('vd', p['slug'], p['title'], edition_title('wp', p['slug'], p['title'])) + body + FOOTER
+                  f"Release history and version notes for {p['pkg']}.", crumbs=trail) + CHANGELOG_STYLE + platform_band('vd', p['slug'], p['title'], edition_title('wp', p['slug'], p['title'])) + body + FOOTER
 
 
 INSTALL_SH = '''#!/usr/bin/env bash
@@ -2815,7 +3007,7 @@ echo "→ Set your licence key:"
 echo "  echo '$ENV_VAR=...' >> .env"
 echo
 echo "✓ Done. Restart Vendure to pick up the plugin."
-echo "  Buy a key:  https://elite.charity/licence/buy/{pkg_short}"
+echo "  Buy a key:  {buy_base}/{pkg_short}"
 echo "  Manual:     https://huloglobal.com/vendure-plugins/{slug}/docs/"
 '''
 
@@ -2826,6 +3018,7 @@ def install_sh(p):
         pkg=p['pkg'],
         class_name=p['class'],
         env_var='HULO_LICENCE_KEY_' + p['slug'].upper().replace('-', '_'),
+        buy_base=BUY_BASE,
         pkg_short=p['pkg'].split('/')[-1],
         slug=p['slug'],
         needs_migration='1' if p['slug'] in NEEDS_MIGRATION else '0',
@@ -2864,13 +3057,27 @@ ROADMAP_STYLE = """
 .rm-vote.voted{ background:#fff7ed; border-color:#f59e0b; color:#b45309; }
 .rm-empty { color:var(--color-ink-500,#5e6670); font-size:13px; }
 .rm-loading { color:var(--color-ink-500,#64748b); font-size:14px; padding:20px 0; }
+.rm-votes { display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:700; color:var(--color-ink-700,#334155); }
+.rm-noscript { font-size:14px; color:var(--color-ink-800,#1e293b); background:#fffbeb; border-left:3px solid var(--color-accent-500,#f59e0b); padding:10px 12px; border-radius:8px; margin:0 0 16px; }
+/* The form and the votes are sent by the script below. Without scripts the
+   form's controls stay disabled (a <noscript> note offers e-mail instead, so
+   nothing is ever sent as a plain GET with the address in the URL), the
+   "vote" hint is not shown, and the board is the one written into the page
+   at build time. */
+html:not(.hu-scripts) .rm-needs-js { display:none; }
 </style>
 """
+
+# The feature-request API on the ELITE backend: the board, votes and requests.
+# Not a licence or payment address, so it stays on elite.charity (the site's
+# CSP connect-src allows it).
+ROADMAP_API = 'https://elite.charity/feature-requests'
+ROADMAP_LABELS = {'considering': 'Considering', 'planned': 'Planned', 'in_progress': 'In progress', 'shipped': 'Shipped'}
 
 ROADMAP_SCRIPT = """
 <script>
 (function(){
-  var API = 'https://elite.charity/feature-requests';
+  var API = '""" + ROADMAP_API + """';
   var LABELS = { considering:'Considering', planned:'Planned', in_progress:'In progress', shipped:'Shipped' };
   var voted = {};
   try { voted = JSON.parse(localStorage.getItem('hulo-fr-voted')||'{}'); } catch(e){}
@@ -2878,6 +3085,7 @@ ROADMAP_SCRIPT = """
   function el(tag, cls, text){ var e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
 
   function renderBoard(data){
+    if (!data || !data.statuses || !data.groups) throw new Error('roadmap: unexpected response');
     var cols = document.getElementById('rm-cols');
     cols.innerHTML='';
     (data.statuses||[]).forEach(function(status){
@@ -2920,11 +3128,18 @@ ROADMAP_SCRIPT = """
   }
 
   function load(){
+    // The live board replaces the one written in at build time (and adds the
+    // vote buttons); if it cannot be fetched, that one stays.
     fetch(API+'/roadmap').then(function(r){return r.json();}).then(renderBoard)
-      .catch(function(){ document.getElementById('rm-cols').innerHTML='<p class=\"rm-empty\">Roadmap is temporarily unavailable.</p>'; });
+      .catch(function(){
+        var cols = document.getElementById('rm-cols');
+        if (!cols.querySelector('.rm-col')) cols.innerHTML='<p class=\"rm-empty\">Roadmap is temporarily unavailable.</p>';
+      });
   }
 
   var form = document.getElementById('rm-form');
+  // The controls are disabled in the HTML (nothing to send without scripts).
+  Array.prototype.forEach.call(form.querySelectorAll('[disabled]'), function(c){ c.disabled = false; });
   form.addEventListener('submit', function(ev){
     ev.preventDefault();
     var msg = document.getElementById('rm-msg'); msg.className='rm-msg';
@@ -2969,12 +3184,52 @@ def roadmap_plugins() -> list[dict]:
     return [p for p in PLUGINS if p['slug'] in known]
 
 
+def roadmap_board() -> str:
+    """The public board as it is at build time, written into the page so it
+    reads without JavaScript (and for crawlers and link previews); the script
+    swaps in the live board, with vote buttons, when the page loads. The same
+    markup as the script's renderBoard(). '' (the script alone fills it, as
+    before) when the API cannot be reached."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(ROADMAP_API + '/roadmap', headers={'User-Agent': 'huloglobal-site-build',
+                                                                         'Accept': 'application/json'})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.load(r)
+        statuses, groups = data['statuses'], data['groups']
+    except Exception as e:
+        print(f'  note roadmap: the board is not written into the page ({e}); the script loads it')
+        return ''
+    cols = []
+    for status in statuses:
+        items = groups.get(status) or []
+        out = [f'<div class="rm-col"><h3><span class="rm-dot {html.escape(status)}"></span>'
+               f'{html.escape(ROADMAP_LABELS.get(status, status))} ({len(items)})</h3>']
+        if not items:
+            out.append('<p class="rm-empty">Nothing here yet.</p>')
+        for it in items:
+            card = [f'<div class="rm-item"><span class="rm-item-plugin">{html.escape(str(it.get("plugin", "")))}</span>',
+                    f'<h4>{html.escape(str(it.get("title", "")))}</h4>']
+            if it.get('description'):
+                card.append(f'<p>{html.escape(str(it["description"]))}</p>')
+            if it.get('adminResponse'):
+                card.append(f'<p class="rm-resp">{html.escape(str(it["adminResponse"]))}</p>')
+            n = int(it.get('votes') or 0)
+            card.append(f'<span class="rm-vote voted">✓ {n}</span>' if status == 'shipped' else
+                        f'<span class="rm-votes"><span aria-hidden="true">▲</span> {n} <span class="sr-only">vote{"" if n == 1 else "s"}</span></span>')
+            out.append(''.join(card) + '</div>')
+        cols.append(''.join(out) + '</div>')
+    return ''.join(cols)
+
+
 def roadmap_page():
     head = header(
         'Feature roadmap & requests — HULO Vendure plugins',
         'https://huloglobal.com/vendure-plugins/roadmap/',
         'See what we\'re building for the HULO Vendure plugins, vote on what matters to you, and request a feature of your own.',
     )
+    board = roadmap_board() or ('<p class="rm-loading rm-needs-js">Loading the roadmap…</p>'
+                                '<noscript><p class="rm-empty">The board loads with JavaScript.</p></noscript>')
     body = """
 <section class="bg-ink-50">
 <div class="container-page page-y">
@@ -2994,25 +3249,26 @@ def roadmap_page():
 <form id="rm-form" class="rm-form-card" novalidate>
 <h2 class="text-xl font-bold text-ink-900 mb-1">Request a feature</h2>
 <p class="text-sm text-ink-600 mb-5">We read every submission. Add your email if you'd like a reply.</p>
+<noscript><p class="rm-noscript">This form is sent with JavaScript, which is off in this browser. Email your idea to <a class="underline underline-offset-2" href="mailto:hello@huloglobal.com?subject=Feature%20request">hello@huloglobal.com</a> instead.</p></noscript>
 <div class="rm-field">
 <label for="rm-plugin">Which plugin?</label>
-<select id="rm-plugin" name="plugin">
+<select id="rm-plugin" name="plugin" disabled>
 <option value="general">General / a new plugin</option>
 """ + ''.join(f'<option value="{p["slug"]}">{html.escape(p["title"])}</option>\n' for p in sorted(roadmap_plugins(), key=lambda p: p['title'])) + """</select>
 </div>
 <div class="rm-field">
 <label for="rm-title">Your idea, in a sentence</label>
-<input id="rm-title" name="title" maxlength="160" required placeholder="e.g. Export the audit log as CSV">
+<input id="rm-title" name="title" maxlength="160" required placeholder="e.g. Export the audit log as CSV" disabled>
 </div>
 <div class="rm-field">
 <label for="rm-desc">Any detail? <span style="font-weight:500;color:#5e6670">(optional)</span></label>
-<textarea id="rm-desc" name="description" maxlength="4000" placeholder="What problem would this solve for you?"></textarea>
+<textarea id="rm-desc" name="description" maxlength="4000" placeholder="What problem would this solve for you?" disabled></textarea>
 </div>
 <div class="rm-field">
 <label for="rm-email">Email <span style="font-weight:500;color:#5e6670">(optional — for a reply)</span></label>
-<input id="rm-email" name="email" type="email" maxlength="255" placeholder="you@store.com">
+<input id="rm-email" name="email" type="email" maxlength="255" placeholder="you@store.com" disabled>
 </div>
-<button type="submit" class="btn btn-primary w-full" style="text-align:center">Submit idea →</button>
+<button type="submit" class="btn btn-primary w-full" style="text-align:center" disabled>Submit idea →</button>
 <div id="rm-msg" class="rm-msg" role="status" aria-live="polite"></div>
 <p class="text-xs text-ink-500 mt-3">Submissions are reviewed before appearing on the public board.</p>
 </form>
@@ -3020,8 +3276,8 @@ def roadmap_page():
 
 <div>
 <h2 class="text-xl font-bold text-ink-900 mb-1">On the board</h2>
-<p class="text-sm text-ink-600 mb-5">What we're considering, building and have shipped. Click ▲ to vote.</p>
-<div id="rm-cols" class="rm-cols"><p class="rm-loading">Loading the roadmap…</p></div>
+<p class="text-sm text-ink-600 mb-5">What we're considering, building and have shipped.<span class="rm-needs-js"> Click ▲ to vote.</span></p>
+<div id="rm-cols" class="rm-cols">""" + board + """</div>
 </div>
 
 </div>
