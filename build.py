@@ -378,10 +378,18 @@ def ccy_picker_html(select_id: str, mobile: bool = False) -> str:
 # one place.
 COMMON_FEATURES = [
     ('MySQL, MariaDB & PostgreSQL', 'The plugin follows whatever database your Vendure `dbConnectionOptions` use — no configuration. Verified against PostgreSQL 17; MySQL/MariaDB installs are unchanged.'),
-    ('Buy & activate from the admin', 'Start the 14-day free trial, subscribe or buy lifetime from the plugin\'s admin page — checkout opens in a new tab and the key installs itself within a minute, renewals included. The same card shows your plan, first-charge date and a Manage billing link to the Stripe portal (update card, cancel, switch plan). Already have a key? Paste it into the same banner. No `.env` edit, no redeploy; environment keys still take precedence for infrastructure-as-code setups.'),
-    ('Weekly report, set-up checklist & dashboard widget', 'Every Monday the plugin emails whoever runs the store a short report of what it did that week — real numbers from your own database, week-over-week, with the next set-up step to take. Change the recipient, send a test or switch it off from the plugin\'s Settings tab (needs the host\'s `SMTP_*` settings). The same numbers sit in a Vendure dashboard widget (Dashboard → Add widget) and the plugin page opens with a set-up checklist that hides itself once everything is done.'),
+    ('Buy & activate from the admin', 'The 14-day evaluation starts by itself, with no card. Subscribe or buy lifetime from the plugin\'s admin page — checkout opens in a new tab and the key installs itself within a minute, renewals included. The same card shows your plan, first-charge date and a Manage billing link to the Stripe portal (update card, cancel, switch plan). Already have a key? Paste it into the same banner. No `.env` edit, no redeploy; environment keys still take precedence for infrastructure-as-code setups.'),
+    ('Weekly report, set-up checklist & dashboard widget', 'With a licence (or during the first 14 days), every Monday the plugin emails whoever runs the store a short report of what it did that week — real numbers from your own database, week-over-week, with the next set-up step to take — and the plugin page opens with a set-up checklist that hides itself once everything is done. Change the recipient, send a test or switch the report off from the plugin\'s Settings tab (needs the host\'s `SMTP_*` settings). If the licence lapses, the report stops and the checklist is hidden; their settings are kept. The dashboard widget (Dashboard → Add widget) is free and shows the plugin\'s recent numbers.'),
     ('One-click in-app updates', 'When a new version ships, an update banner shows current → latest with a What\'s-new link to the changelog. "Update now" installs the registry-verified release via your project\'s own package manager (yarn/npm/pnpm auto-detected) and gracefully restarts under pm2/systemd. Disable with `HULO_SELF_UPDATE=off`.'),
 ]
+
+# Pricing-card wording for the subscriptions (Terms 6.1-6.3, and the same
+# facts as build_wordpress.py's sub_text): the evaluation needs no card; the
+# website checkout the buttons open starts a card trial.
+TRIAL_TEXT = ('Install the plugin and its first 14 days are free with no card. Subscribe from the plugin\'s admin page '
+              'when you\'re ready: the first charge is taken when the 14 days end (or 49 hours after checkout, if that is later). '
+              'Subscribing on this website starts a 14-day trial instead, with a card at checkout and nothing charged until day 15. '
+              'Cancel any time.')
 
 # API prefix per plugin, for the shared licence/update endpoint rows.
 ROUTE_PREFIX = {
@@ -393,8 +401,161 @@ ROUTE_PREFIX = {
     'payments': '/hulo-payments',
 }
 
-# What the free tier includes vs what needs a key (from each package README).
-TIERS = {'payments': (['Stripe: sessions, wallets, 3-D Secure, automatic or manual capture, refunds, disputes, signed webhooks', 'Bank transfer and pay-later / invoice methods', 'The hosted checkout page', 'The payments ledger, dashboard and webhook log', 'The hulo-payment-rules eligibility checker'], ['Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com and Coinbase Commerce', 'Subscriptions and the renewal scheduler', 'Saved cards and pay-by-link', 'Provider routing, fallback on decline and surcharges']), 'business-credit': (['Accounts and credit limits with the audit trail', 'Pay-on-Account handler and eligibility checker', 'Invoices, manual settlements and allocation, the ledger', 'Statements (view), review dates, the admin dashboard'], ['Stripe card pay links and top-ups', 'Reminders, dunning emails, late fees, auto-suspend', 'Statement emails and CSV exports', 'Storefront applications, invitations, auto-approval', 'Company members, payment plans, reward points']), 'checkout-guard': (['Session-bound order lookup and trusted client IP', 'Rate limits and funnel events', 'Bank-transfer handler and eligibility checker', 'The dashboard'], ['Stripe manual-capture hold handling', 'Bank-transfer auto-expiry and reminders', 'Failed-payment recording and nightly reconciliation', 'Amount-drift guard and ops alerts']), 'fraud-prevention': (['Monitor mode: every order scored and logged', 'Manual allow / block lists', 'Simulate a rule change before enforcing it'], ['Enforce mode and review-queue holds', 'Threat-feed sync (FireHOL, Spamhaus, Tor, disposable email)', 'Email alerts']), 'review-requests': (['Configure per channel, preview the email', 'Test-send to yourself'], ['Scheduled sending after every order', 'Exclusions, cooldown and one-click unsubscribe in production']), 'quotations': (['Quote builder with live catalogue pricing', 'Previews and drafts', 'Storefront quote requests landing in the inbox'], ['Sending the signed accept / decline link', 'Auto-chasers, expiry reminders and auto-expiry', 'Accepted quote to draft order']), 'geo-block': (['Configure regions, rules and allowlists', '"What-if" simulator and audit log in the admin'], ['Live enforcement: the storefront endpoint reports the real decision (free tier always answers enabled: false)']), 'visitor-analytics': (['Tracking and data collection with the storefront helpers', 'Privacy controls (DNT, IP anonymisation, consent gate)'], ['Dashboards, funnels, exit pages and search analytics (403 on the free tier)', 'Product recommendations and abandoned-cart recovery links'])}
+# What the free tier includes vs what needs a key: the parity wave of
+# 2026-11-13 (each package README's tier section and PREMIUM_FEATURES).
+TIERS = {
+    'payments': ([
+        'Stripe: sessions, wallets, 3-D Secure, automatic or manual capture, refunds, disputes, signed webhooks',
+        'Bank transfer and pay-later / invoice methods',
+        'The hosted checkout page, provider order per channel and the hulo-payment-rules eligibility checker',
+        'Pay links: the hosted page or Stripe, deposits and balances included',
+        'Refunds made in a provider dashboard reconciled into Vendure (opt-in)',
+        'Per-IP rate limits on the hosted page and webhooks',
+        'The payments ledger, disputes, dashboard and webhook log',
+    ], [
+        'Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com and Coinbase Commerce, and their pay links',
+        'Subscriptions and the renewal scheduler',
+        'Saved cards',
+        'Surcharges',
+        'Fallback to the next provider after a decline',
+        'The weekly report and set-up checklist',
+    ]),
+    'business-credit': ([
+        'Accounts and credit limits with the audit trail',
+        'Pay on Account (purchase-order numbers included) and the eligibility checker',
+        'Invoices, including invoices you raise by hand with lines; credit notes, settlements and statements',
+        'Credit applications from the storefront',
+        'Paying one invoice online by card',
+        'One-click reminder on an invoice',
+        'Company members added by an admin',
+        'Rate limits on applications, invitations and invitation links',
+    ], [
+        'Automatic reminders, late fees and auto-suspend',
+        'Statement e-mails and the review-due e-mail',
+        'Payment plans',
+        'Card pay links for several invoices at once, and card top-ups',
+        'CSV exports',
+        'Invitations, auto-approval and account holders inviting colleagues',
+        'Reward points, including points earned on invoices and spent against them',
+        'The weekly report and set-up checklist',
+    ]),
+    'checkout-guard': ([
+        'The Stripe hold list with capture and release',
+        'The decline log',
+        'Rate limits on the checkout mutations',
+        'Card-testing gate per IP and per order, plus the automatic order gate (opt-in)',
+        'Session-bound order access and the trusted client IP',
+        'Bank transfers, including Stripe UK and EU virtual accounts that settle themselves (opt-in)',
+        'Checkout funnel',
+        'Opt-in guards: login guard, a shared limiter store (the database, or Vendure\'s cache such as Redis), the orderByCode lookup limit and the client IP on the order',
+        'The blocked list with unblock, and settings you edit in the admin',
+    ], [
+        'Auto-capture and the safety capture of holds',
+        'Holds from HULO Payments',
+        'Bank-transfer expiry, reminders and customer e-mails',
+        'Reconciliation: orphaned charges and amount drift',
+        'The amount-drift guard at settlement',
+        'Ops alerts',
+        'The weekly report and set-up checklist',
+    ]),
+    'email-tracking': ([
+        'A log of every e-mail with its SMTP reply and retries',
+        'Open and click recording; bots and Apple Mail Privacy Protection are kept out of the counts',
+        'The suppression list, enforced at send for every e-mail (password resets are still sent), with an admin page',
+        'Hard bounces and complaints from the bounce webhook (a hard or soft bounceType is required) and from verified provider webhooks',
+        'Each order\'s e-mails on its order page, and an Emails tab on every customer',
+        'Tracking on/off switches and trusted proxies',
+        'Privacy export and erase by address',
+        'The dashboard widget, with failed or bounced e-mails',
+    ], [
+        'Open and click rates per e-mail template',
+        'CSV export of the e-mail log',
+        'The order activity timeline and the PDF evidence report',
+        'Delivery, deferral, unsubscribe and engagement events from your e-mail provider',
+        'The weekly report and set-up checklist',
+    ]),
+    'fraud-prevention': ([
+        'A risk score and its signals on every order, unpaid ones included, a failed CVC check and card country different from billing among them',
+        'Allow and block lists, custom signal weights, the simulator and customer lookup',
+        'Hold mode: block-level orders refused before the charge',
+        'Order limits in each order\'s own currency',
+        'The activity log with the retention you set, and a risk column on the orders list',
+        'A notice when a misconfigured proxy hides your customers\' IP addresses',
+        'Extension events for your own code',
+        'IP intelligence, opt-in, with your own ip-api.com Pro key',
+    ], [
+        'Enforce mode with the review queue; approving captures the payment',
+        'The HTTP fulfilment gate',
+        'Threat feeds (FireHOL, Spamhaus, Tor, disposable e-mail) and your own feed URLs',
+        'E-mail and chat alerts, monitor-mode alerts included',
+        'The weekly report and set-up checklist',
+    ]),
+    'review-requests': ([
+        'Configure per channel, preview the e-mail and test-send it to yourself',
+        'Send the invitation for one order from its order page',
+        'Exclusions and the unsubscribed (opt-out) list',
+        'Click tracking and a note on the order',
+        'The dashboard widget',
+        'No invitations until the review page is set, and review-page identifiers checked on save',
+    ], [
+        'Automatic sending after every order, and Send due now',
+        'Invitations from a pasted or CSV list, now or scheduled',
+        '"Not invited yet" with Invite selected, and the Orders-list bulk action',
+        'Resend',
+        'The star-rating box in the e-mail',
+        'The weekly report and set-up checklist',
+    ]),
+    'quotations': ([
+        'Quote builder with live catalogue prices and any currency',
+        'Send, test send, mark as sent, the chaser and the expiry reminder',
+        'Staff preview of the customer page, validity counted from sending, and a PDF of every quote',
+        'Acceptance tied to the version the customer saw, and auto-expiry',
+        'A HULO Payments pay link on acceptance',
+        'Quote requests from your storefront, and "My quotes" for signed-in customers',
+        'A 12-month report, KPIs per currency and EventBus events',
+    ], [
+        'Converting an accepted quote to a draft order from the admin',
+        'Templates and follow-up sequences',
+        'Discount approval',
+        'Webhooks, Slack and Microsoft Teams included',
+        'Sales reports with CSV',
+        'Deposits and the balance',
+        'The weekly report and set-up checklist',
+    ]),
+    'geo-block': ([
+        'Rules enforced, with 5 presets (Worldwide, UK only, EU, North America, Oceania)',
+        'IPv4 and IPv6 allowlist, with Add my IP',
+        'Business hours and per-channel maintenance windows, set in the admin',
+        'Purchase enforcement: blocked visitors cannot buy (a hard block, opt-in)',
+        'Verified crawler allowlist (reverse DNS)',
+        'Country from a trusted CDN header or a local MaxMind file, with a country-source diagnostic',
+        '403 and 503 status codes on the block page',
+        'The Settings tab',
+    ], [
+        'All 37 region presets',
+        'Subdivisions (US states, German Länder, UK countries and more)',
+        'Soft block: a banner only, the shop stays open',
+        'The audit log and stats',
+        'The "what-if" simulator',
+        'The weekly report and set-up checklist',
+    ]),
+    'visitor-analytics': ([
+        'Every event recorded, with no daily cap',
+        'Dashboards, sources, pages, funnel, journeys, site search, rage and dead clicks, retention',
+        'Landing pages, bounce rate and conversions per source, operating systems',
+        'Visitor profiles and the Settings tab',
+        'Page goals you already have keep counting',
+        'Cookieless mode, staff and IP exclusion, URL parameter stripping',
+        'Privacy export and erase',
+        'The Abandoned Carts page in the plugin',
+    ], [
+        'Conversion goals: create them, form and payment goals, and suggestions (completions per goal stay visible on every tier)',
+        'The live visitors view and the events CSV export',
+        'The abandoned-cart scanner, verified e-mail capture, server-side cart capture and recovery reminder e-mails',
+        'Product recommendations',
+        'The weekly report and set-up checklist',
+    ]),
+}
 # Plugins currently shown in Vendure's own plugin directory
 # (docs.vendure.io/plugins, checked 2026-11-04: seven HULO entries; Checkout
 # Guard is not among them). Re-check the directory before each deploy.
@@ -402,10 +563,12 @@ VENDURE_DIRECTORY_LISTED = ['email-tracking', 'fraud-prevention', 'geo-block', '
 # Submitted to the directory (2026-09-23) but not yet listed; move to LISTED when Vendure publishes them.
 VENDURE_DIRECTORY_SUBMITTED = ['business-credit', 'checkout-guard']
 # Plugins that need a migration: email-tracking, geo-block and
-# visitor-analytics register TypeORM entities; payments creates its tables on
-# boot and needs one only for the three subscription custom fields it adds to
-# ProductVariant (its README). The others create their tables on boot.
-NEEDS_MIGRATION = ['email-tracking', 'geo-block', 'visitor-analytics', 'payments']
+# visitor-analytics register TypeORM entities (geo-block also adds two Channel
+# custom fields since 0.15); payments and checkout-guard create their tables
+# on boot and need one only for the custom fields they add (payments: three on
+# ProductVariant; checkout-guard: cgSessionHash on Order, plus cgClientIp with
+# orderClientIp), per their READMEs. The others create their tables on boot.
+NEEDS_MIGRATION = ['email-tracking', 'geo-block', 'visitor-analytics', 'payments', 'checkout-guard']
 # Why the migration is needed and its name, where that differs from the
 # entity plugins' (their text: install step and install.sh).
 MIGRATION_WHY = {
@@ -413,6 +576,20 @@ MIGRATION_WHY = {
                  'custom fields the plugin adds to <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">ProductVariant</code>. '
                  'Generate and run it like any other:',
                  'this plugin adds three custom fields to ProductVariant', 'AddHuloPaymentsCustomFields'),
+    'checkout-guard': ('Tables are created on boot; the only migration is Vendure\'s own, for the '
+                       '<code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">cgSessionHash</code> '
+                       'custom field the plugin adds to <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">Order</code> '
+                       '(and <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">cgClientIp</code> if you switch on '
+                       '<code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">orderClientIp</code>). '
+                       'Generate and run it like any other, or use <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">synchronize</code>:',
+                       'this plugin adds a custom field to Order', 'AddCheckoutGuardCustomFields'),
+    'geo-block': ('The plugin registers its own entity and, since 0.15, two Channel custom fields '
+                  '(<code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">geoBlockMaintenance</code>, '
+                  '<code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">geoBlockEnforcePurchases</code>); '
+                  'upgrading to 0.15 without <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">synchronize</code> needs this migration too '
+                  '(or add the <code class="font-mono text-sm bg-white px-1.5 py-0.5 rounded border border-ink-200">GeoBlockChannelFields1763020800000</code> migration the package ships). '
+                  'Generate and run it like any other:',
+                  'this plugin registers an entity and Channel custom fields', 'AddGeoBlockPluginTables'),
 }
 
 
@@ -432,11 +609,11 @@ NOTED_THIRD_PARTY = ['payments', 'checkout-guard', 'business-credit', 'fraud-pre
 # table's note. Plugins not listed call none. Owner sign-off: privacy copy.
 THIRD_PARTY = {
     'payments': 'Payments are sent from your server to the providers you connect (Stripe, Adyen, PayPal and the others), as with any payment plugin.',
-    'checkout-guard': 'Holds and the nightly reconciliation call Stripe with your own key, and alerts go only to the channels you set up.',
+    'checkout-guard': 'Holds, Stripe bank transfers and the nightly reconciliation call Stripe with your own key, and alerts go only to the channels you set up.',
     'business-credit': 'Card pay links and top-ups are created in your own Stripe account.',
-    'fraud-prevention': ('To score orders it looks up IP addresses at ip-api.com, downloads public blocklist feeds (FireHOL, Spamhaus, Tor, '
-                         'disposable-email domains) and reads the card checks from your Stripe account; the lookups and feeds are cached, '
-                         'and can be switched off.'),
+    'fraud-prevention': ('To score orders it reads the card checks from your Stripe account; if you switch on IP intelligence it looks up '
+                         'IP addresses at pro.ip-api.com with your own key, and with a licence it downloads public blocklist feeds (FireHOL, '
+                         'Spamhaus, Tor, disposable-email domains). The lookups and feeds are cached, and can be switched off.'),
     'review-requests': 'If you show your live rating, it is read from Trustpilot or Google; invitations go out through your own SMTP server.',
     'visitor-analytics': 'Abandoned-cart alerts go to Slack only if you set a Slack webhook.',
     'email-tracking': ('None unless you switch them on. Optional IP enrichment looks up the IP address of each open and click '
@@ -622,7 +799,7 @@ PLUGINS = [
             'CAD': {'monthly': 'C$26.95', 'lifetime': 'C$539', 'symbol': 'C$', 'label': 'CAD — Canadian dollar'},
         },
         'class': 'QuotationsPlugin',
-        'version': '0.1.0',
+        'version': '0.9.0',
         'title': 'Quotations',
         'tagline': 'End-to-end quotation engine — build quotes from your catalogue, email a signed accept/decline link, chase automatically, convert wins to draft orders at the exact quoted total.',
         # Meta description (155 characters or fewer), from the tagline.
@@ -646,13 +823,15 @@ PLUGINS = [
             ('Branded customer quote page', 'A signed, unguessable link opens a clean quote page in your colours with your logo: line items, totals, notes, terms — plus print/save-as-PDF. No customer account needed.'),
             ('Accept with a signature', 'The customer types their full name to accept — recorded with a timestamp as their signature, alongside an optional comment. Declines capture a reason. You get an email either way.'),
             ('Viewed / accepted / declined tracking', 'The first open flips the quote to viewed with a timestamp. Every event — created, sent, viewed, chased, accepted, declined, expired, converted — is in the per-quote activity log.'),
-            ('Automatic follow-ups', 'One chaser for unopened quotes after N days, an expires-soon reminder before the validity date, and automatic expiry after it. All per-channel configurable, all logged, none sent twice.'),
-            ('Convert to order at the quoted price', 'Accepted quotes become Vendure draft orders: catalogue lines are added as real order lines and a single "Quotation pricing" surcharge reconciles any difference — the draft total equals the quote total exactly.'),
+            ('Automatic follow-ups', 'One chaser for unopened quotes after N days, an expires-soon reminder before the validity date, and automatic expiry after it — all on the free tier. All per-channel configurable, all logged, none sent twice. With a licence, follow-up sequences add more steps.'),
+            ('Convert to order at the quoted price', 'With a licence, accepted quotes become Vendure draft orders from the admin: catalogue lines are added as real order lines and a single "Quotation pricing" surcharge reconciles any difference — the draft total equals the quote total exactly.'),
+            ('Get paid on acceptance', 'With HULO Payments for Vendure (or your own provider), an accepted quote can be paid online: switch on Pay link on acceptance, or create a pay link on the quote, and the quote is marked paid when the order\'s settled payments cover the quoted total. Acceptance is bound to the version the customer saw: if the quote was edited after they opened it, the acceptance is refused and the page shows the current version.'),
+            ('PDF, staff preview and "My quotes"', 'A PDF of every quote, a staff preview of the customer page, and a "My quotes" list for signed-in customers.'),
             ('Revisions & duplicates', 'Sent quotes are immutable once decided; duplicate any quote as a fresh draft (linked as a revision) when the deal changes shape.'),
             ('Send as a member of staff', 'Pick which administrator each quote goes out as: their name fronts the From header, replies land in their inbox, the quote page shows "Prepared by", and acceptance/decline/opened notifications reach them directly.'),
             ('Customer picker + preview + test-send', 'Search existing Vendure customers to autofill the quote; preview the rendered email or test-send the real thing to yourself before the customer ever sees it.'),
             ('Opened notifications + extend validity', 'Optional "email me the moment the quote is first opened" — the perfect follow-up cue — plus one-click validity extension that can revive an expired quote.'),
-            ('Pipeline KPIs', 'Win rate and sends over 30 days, open pipeline value, and average send-to-decision time — on the dashboard where you quote.'),
+            ('Pipeline KPIs', 'Win rate and sends over 30 days, open pipeline value per currency, and average send-to-decision time — on the dashboard where you quote — plus a 12-month report.'),
             ('Per-channel everything', 'Numbering prefix + sequence, default terms/VAT/validity, notification address and email template per sales channel — with full brand chrome on every email and quote page: logo, accent colour, website, phone, address and a company/VAT footer note.'),
         ],
         'endpoints': [
@@ -662,7 +841,7 @@ PLUGINS = [
             ('GET',  '/quotations/quotes',            'Admin: list + filter + search'),
             ('POST', '/quotations/quotes',            'Admin: create a quote'),
             ('PUT',  '/quotations/quotes/:id',        'Admin: update a draft/open quote'),
-            ('POST', '/quotations/quotes/:id/send',   'Admin: email the customer (licensed)'),
+            ('POST', '/quotations/quotes/:id/send',   'Admin: email the customer'),
             ('POST', '/quotations/quotes/:id/convert','Admin: accepted quote → draft order (licensed)'),
             ('POST', '/quotations/quotes/:id/duplicate', 'Admin: duplicate / revise'),
             ('GET',  '/quotations/stats',             'Admin: win rate + pipeline KPIs'),
@@ -682,7 +861,7 @@ PLUGINS = [
             'CAD': {'monthly': 'C$12.95', 'lifetime': 'C$259', 'symbol': 'C$', 'label': 'CAD — Canadian dollar'},
         },
         'class': 'EmailTrackingPlugin',
-        'version': '0.8.2',
+        'version': '0.17.0',
         'title': 'Email Tracking',
         'tagline': 'Every transactional email your Vendure server sends, recorded as raw events: verified provider webhooks, human-vs-machine classification and a per-order activity timeline with a PDF evidence report.',
         'seo_description': 'Track every email Vendure sends: deliveries, opens, clicks and bounces, verified provider webhooks, and a per-order timeline with a PDF evidence report.',
@@ -705,15 +884,15 @@ PLUGINS = [
             ('Signed open + click tracking', 'A 1×1 pixel and a click redirector, both signed with a per-install secret, so forged opens and clicks are not counted and the redirector cannot be pointed at another site. Per-link tokens (`EmailLinkService.issueLinkToken()`) record exactly which link was clicked, and sensitive links (password reset, invoice access) are stored only in redacted form. Token-like query parameters are redacted in every recorded URL.'),
             ('Raw event timeline', 'One `email_event` row per send, delivery, deferral, bounce, complaint, unsubscribe, open and click, with its order, customer, channel, source, time, Message-ID, hashed IP, location, client and classification. Raw events are never merged; a daily cap per email keeps one leaked link from filling the table.'),
             ('Human / machine / unknown classification', 'Every open and click is scored with the licence SDK\'s classifier. Reason chips show why an event looks machine-driven: `gmail-proxy`, `ampp` (Apple Mail Privacy Protection), `safelinks`, `proofpoint`, `bot-ua`, `headless`, `prefetch` and, with IP enrichment on, `datacentre`, `vpn`, `proxy` and `tor`. The classification is advisory: nothing is blocked.'),
-            ('Provider delivery webhooks', 'Delivered, deferred, bounced, dropped, complaint and unsubscribe events from Postmark (Basic auth), SendGrid (ECDSA over the exact request body), Mailgun (HMAC with a timestamp window and replay check) and Amazon SES through SNS (full message-signature check against Amazon\'s certificate). Unknown providers get 404, unconfigured ones 401, and each provider event is stored once however often it is retried. Hard bounces and complaints add the address to the suppression list.'),
+            ('Provider delivery webhooks', 'Delivered, deferred, bounced, dropped, complaint and unsubscribe events from Postmark (Basic auth), SendGrid (ECDSA over the exact request body), Mailgun (HMAC with a timestamp window and replay check) and Amazon SES through SNS (full message-signature check against Amazon\'s certificate). Unknown providers get 404, unconfigured ones 401, and each provider event is stored once however often it is retried. Bounces, drops and complaints are recorded on the free tier, and hard bounces and complaints add the address to the suppression list; deliveries, deferrals, unsubscribes and engagement events need a licence.'),
             ('IP enrichment (opt-in)', 'Off by default, so the plugin makes no third-party calls. Switch it on to look up the network of each open and click (ASN, organisation, proxy, VPN, datacentre and mobile flags) at ipinfo.io, ip-api.com or a lookup you supply. Private addresses are skipped, results are cached, a per-minute budget is kept, and lookups never hold up an event.'),
-            ('Order activity on every order page', 'A panel on the order page and a full activity page merge the order\'s email events with Vendure\'s own order history: state changes, payments, fulfilments, refunds, cancellations and notes. Filter by emails, opens, clicks, delivery, order and payment, or notes, 100 events at a time with Load more. IP-derived locations carry a cautionary note.'),
-            ('CSV, JSON and PDF evidence exports', 'A redacted CSV and JSON of the timeline, a full JSON export behind the new `ExportEmailEvidence` permission, and an "Order activity and delivery evidence report" PDF opened through a five-minute signed link. The PDF prints a SHA-256 of the timeline, so it can be matched to a later JSON export.'),
+            ('Order activity on every order page', 'Every order page lists the order\'s e-mails on the free tier. With a licence, a panel on the order page and a full activity page merge the order\'s email events with Vendure\'s own order history: state changes, payments, fulfilments, refunds, cancellations and notes. Filter by emails, opens, clicks, delivery, order and payment, or notes, 100 events at a time with Load more. IP-derived locations carry a cautionary note.'),
+            ('CSV, JSON and PDF evidence exports', 'With a licence: a redacted CSV and JSON of the timeline, a full JSON export behind the new `ExportEmailEvidence` permission, and an "Order activity and delivery evidence report" PDF opened through a five-minute signed link. The PDF prints a SHA-256 of the timeline, so it can be matched to a later JSON export.'),
             ('Per-customer Emails tab', 'Every customer page gets an Emails tab listing what was sent to them, with links to each order and its activity.'),
-            ('Suppression list', 'Hard bounces and complaints auto-add to the suppression table. Later sends to those addresses are refused and logged as `status=suppressed`; soft bounces never suppress.'),
-            ('Per-template analytics', 'Open rate, click rate and click-to-open ratio per email type: order confirmation, OTP, invoice, password reset and your own types.'),
-            ('Signed bounce webhook', 'POST bounce and complaint events to `/email-track/bounce` from your own postmaster integration, signed with an `X-Signature` HMAC-SHA256 header.'),
-            ('Admin UI: Email Log', 'Filter by recipient, customer, order, status, type and date range, expand any row for its open and click history, and export CSV. Exports are never cached by a CDN.'),
+            ('Suppression list, free', 'Hard bounces and complaints auto-add to the suppression table, and you can search, add and remove addresses in the admin. Every later email to those addresses is refused at send and logged as `status=suppressed` (a password reset is still sent); soft bounces never suppress.'),
+            ('Per-template analytics', 'With a licence: open rate, click rate and click-to-open ratio per email type: order confirmation, OTP, invoice, password reset and your own types.'),
+            ('Signed bounce webhook', 'POST bounce and complaint events to `/email-track/bounce` from your own postmaster integration, signed with an `X-Signature` HMAC-SHA256 header. A bounce must say `bounceType` `hard` or `soft` (anything else is refused with 400); only hard bounces and complaints suppress, recipient by recipient.'),
+            ('Admin UI: Email Log', 'Filter by recipient, customer, order, status, type and date range, and expand any row for its open and click history. With a licence, export CSV; exports are never cached by a CDN.'),
             ('Works with any SMTP transport', 'Gmail, SES, SendGrid, Postmark, Mailgun or plain SMTP: plug `TrackingEmailSender()` into your email-plugin config.'),
         ],
         'endpoints': [
@@ -721,7 +900,7 @@ PLUGINS = [
             ('GET',  '/email-track/click/:token?u=<url>&s=<sig>', 'Click redirector: checks the signed destination, records the click, then 302s'),
             ('POST', '/email-track/webhook/:provider', 'Provider delivery events: postmark, sendgrid, mailgun or ses, verified by the provider\'s signature'),
             ('POST', '/email-track/bounce',           'Bounce / complaint webhook, signed with X-Signature (HMAC-SHA256)'),
-            ('GET',  '/email-track/orders/:orderId/activity', 'Admin: the order\'s activity timeline (ReadOrder + ReadCustomer)'),
+            ('GET',  '/email-track/orders/:orderId/activity', 'Admin: the order\'s activity timeline (ReadOrder + ReadCustomer; licensed, as are the exports below)'),
             ('GET',  '/email-track/orders/:orderId/activity.csv', 'Admin: redacted CSV of the timeline'),
             ('GET',  '/email-track/orders/:orderId/activity.json', 'Admin: redacted JSON; ?full=1 needs ExportEmailEvidence'),
             ('POST', '/email-track/orders/:orderId/evidence-link', 'Admin: a five-minute signed link to the PDF evidence report'),
@@ -729,8 +908,8 @@ PLUGINS = [
             ('GET',  '/email-track/log',              'Admin: paginated log with filters'),
             ('GET',  '/email-track/log/summary',      'Admin: status totals'),
             ('GET',  '/email-track/log/:id',          'Admin: full detail, incl. opens and clicks'),
-            ('GET',  '/email-track/log/stats/by-template', 'Admin: per-template open and click rates'),
-            ('GET',  '/email-track/log/export.csv',   'Admin: CSV export'),
+            ('GET',  '/email-track/log/stats/by-template', 'Admin: per-template open and click rates (licensed)'),
+            ('GET',  '/email-track/log/export.csv',   'Admin: CSV export (licensed)'),
             ('GET',  '/email-track/suppression',      'Admin: list suppression entries'),
             ('POST', '/email-track/suppression',      'Admin: manually add a recipient'),
             ('DELETE', '/email-track/suppression/:recipient', 'Admin: lift a suppression'),
@@ -749,37 +928,42 @@ PLUGINS = [
             'CAD': {'monthly': 'C$8.95', 'lifetime': 'C$179', 'symbol': 'C$', 'label': 'CAD — Canadian dollar'},
         },
         'class': 'GeoBlockPlugin',
-        'version': '0.6.0',
+        'version': '0.15.0',
         'title': 'Geo-block',
-        'tagline': '37 region presets, soft-block mode, IP allowlist, audit log, "what-if" simulator.',
+        'tagline': 'Per-channel geo-restriction that the free tier really enforces: country rules, IPv4/IPv6 allowlist, business hours, maintenance windows and opt-in purchase enforcement. A licence adds 37 region presets, subdivisions, soft-block mode, the audit log and a "what-if" simulator.',
         'description': (
             'Per-channel geo-restrictions you can actually understand. Pick from '
-            '37 hand-curated region presets (EU, EEA, Schengen, GCC, ANZAC, NATO, '
+            '37 hand-curated region presets (EU, EEA, Schengen, GCC, ANZ, NATO, '
             'OECD, Commonwealth, English-speaking, MENA, ASEAN, Nordic, …) or '
             'add countries manually. Soft-block mode for "browse-only" markets. '
-            'IP allowlist for offices and payment processors. Every block decision '
-            'is logged for the admin Stats panel.'
+            'IPv4 and IPv6 allowlist for offices and payment processors, business '
+            'hours, maintenance windows and, if you switch it on, server-side '
+            'refusal of purchases from blocked visitors. With a licence every block '
+            'decision is logged for the admin Stats panel.'
         ),
         'features': [
-            ('37 region presets', 'One-click setups: EU, EEA, EFTA, Schengen, Nordic, DACH, Benelux, Balkans, GCC, MENA, ASEAN, APAC, East Asia, South Asia, LATAM, North America, Caribbean, Oceania, ANZ, G7, G20, BRICS, OECD, NATO, Five Eyes, Commonwealth, English-speaking, and more.'),
+            ('37 region presets', 'With a licence (the free tier has five: Worldwide, UK only, EU, North America and Oceania). One-click setups: EU, EEA, EFTA, Schengen, Nordic, DACH, Benelux, Balkans, GCC, MENA, ASEAN, APAC, East Asia, South Asia, LATAM, North America, Caribbean, Oceania, ANZ, G7, G20, BRICS, OECD, NATO, Five Eyes, Commonwealth, English-speaking, and more.'),
             ('Per-channel rules', 'Each Vendure channel gets its own rules — perfect for multi-storefront installs (e.g. one UK-only channel, one EU channel).'),
-            ('Soft-block (browse-only)', 'Mode toggle: full block hides the storefront entirely; soft mode renders it with a banner explaining you don\'t ship to their country and hiding checkout.'),
-            ('IP allowlist with CIDR', 'IPs or IPv4 ranges (`203.0.113.0/24`) that bypass every rule. For your office, oncall, monitoring probes, payment processors.'),
-            ('Audit log + stats', 'Every block decision logged with country, region, IP, UA, channel and reason. Admin Stats tab shows top blocked countries, daily series, and reason breakdown.'),
-            ('"What-if" simulator', 'Test exactly what your rules will do for a hypothetical visitor — country, UK region, IP — before saving anything to production.'),
+            ('Soft-block (browse-only)', 'With a licence. Mode toggle: full block hides the storefront entirely; soft mode renders it with a banner explaining you don\'t ship to their country. A soft block is a banner only: it does not hide or refuse the checkout (use a full block with purchase enforcement for that). On the free tier a soft block acts as a full block.'),
+            ('Purchase enforcement (opt-in)', 'Switch on Refuse purchases from blocked visitors and Vendure itself refuses adding to the basket and checkout for a visitor your rules fully block, even one who skips the storefront and calls the Shop API. Off by default; it fails open, so an unknown country or a lookup error never stops a sale.'),
+            ('IP allowlist with CIDR', 'IPs or IPv4 and IPv6 ranges (`203.0.113.0/24`, `2001:db8::/48`) that bypass every rule. For your office, oncall, monitoring probes, payment processors. Add my IP adds the address the server sees for you.'),
+            ('Audit log + stats', 'With a licence, every block decision logged with country, region, IP, UA, channel and reason. Admin Stats tab shows top blocked countries, daily series, and reason breakdown.'),
+            ('"What-if" simulator', 'With a licence, test exactly what your rules will do for a hypothetical visitor — country, UK region, IP — before saving anything to production.'),
             ('Custom block page', 'Per-channel message, optional redirect URL and optional logo URL. Or fall back to sensible defaults per block reason.'),
-            ('UK sub-region filter', 'When GB is allowed, optionally restrict to ENG / WLS / SCT / NIR. Driven from the standard ISO subdivision codes.'),
-            ('Proxy-aware', 'Reads `cf-ipcountry` / Akamai / Fastly region headers when present. Saves a MaxMind lookup per request.'),
-            ('Scheduled maintenance window', 'Plugin option for a date-range lockdown — every visitor is blocked (except the IP allowlist) until the window closes.'),
+            ('Subdivisions', 'With a licence, restrict a country to some of its subdivisions: US states, Canadian provinces, Australian states, German Länder, UK countries (ENG / WLS / SCT / NIR) and more, from the standard ISO 3166-2 codes.'),
+            ('Country from your CDN or a local MaxMind file', 'Reads `cf-ipcountry` / Akamai / Fastly country headers from a trusted proxy. Without one, it can read a MaxMind-format database file already on your server; the plugin never downloads it. A visitor whose country cannot be resolved is allowed. The Settings tab shows where your own country came from.'),
+            ('Business hours and maintenance windows', 'Opening hours per channel (overnight ranges and time zones handled) and per-channel maintenance windows, both set in the admin. The IP allowlist gets in; allowlisted crawlers bypass them for page views (so search engines keep the site indexed), never for purchases.'),
+            ('Crawlers, verified', 'Search and social crawlers bypass the rules for page views by default. Switch on Verify Googlebot and Bingbot and a visitor claiming to be one must pass a reverse and forward DNS check.'),
+            ('Status codes that search engines understand', 'The block page answers 403 for a country refusal and 503 with Retry-After for business hours and maintenance, with noindex, so crawlers and caches never store it as the page.'),
         ],
         'endpoints': [
             ('GET',  '/geo-block/site-config',     'Public: channel rules the storefront polls'),
-            ('GET',  '/geo-block/check',           'Public: per-request decision + reason (logs to audit)'),
+            ('GET',  '/geo-block/check',           'Public: per-request decision + reason (logged to the audit log with a licence)'),
             ('GET',  '/geo-block/presets',         'Public: the preset catalogue (37 entries)'),
             ('GET',  '/geo-block/admin/channels',  'Admin: list channels with current rules'),
             ('POST', '/geo-block/admin/save',      'Admin: save a channel\'s rules'),
-            ('GET',  '/geo-block/admin/stats',     'Admin: block totals + top countries + daily series'),
-            ('POST', '/geo-block/admin/simulate',  'Admin: dry-run a visitor against current rules'),
+            ('GET',  '/geo-block/admin/stats',     'Admin: block totals + top countries + daily series (licensed)'),
+            ('POST', '/geo-block/admin/simulate',  'Admin: dry-run a visitor against current rules (licensed)'),
             ('POST', '/geo-block/admin/gc',        'Admin: prune old audit rows'),
         ],
     },
@@ -787,7 +971,7 @@ PLUGINS = [
         'slug': 'visitor-analytics',
         'pkg': '@huloglobal/vendure-plugin-visitor-analytics',
         'class': 'VisitorAnalyticsPlugin',
-        'version': '0.8.1',
+        'version': '0.20.0',
         'title': 'Visitor Analytics',
         'tagline': 'Self-hosted visitor journey, cart abandonment, product recommendations, search analytics — one plugin, one database, no third party.',
         'description': (
@@ -803,21 +987,22 @@ PLUGINS = [
             'tag and every event type is wired.'
         ),
         'features': [
-            ('Cart abandonment', 'Detects sessions with `cart_snapshot` events but no `checkout_completed` in the abandonment window (default 30 min). Auto-promotes to `converted` when a matching checkout later lands. Signed recovery-link tokens (time-bounded, non-reusable) — `/ees/abandoned-carts/:id/recovery-link` returns a URL you drop into a recovery email. Slack notification for high-value drops.'),
-            ('Product recommendations', 'Denormalised `ProductCoView` table rebuilt every 6 hours from `product_view` events, bounded per session to 20 events so bot sessions can\'t skew the table. Three endpoints: `also-viewed` for a product-page rail, `personal` for a homepage/cart rail based on a returning visitor\'s last 10 product views, `trending` for a most-viewed-in-window rail.'),
+            ('Cart abandonment', 'With a licence, the scanner detects sessions with `cart_snapshot` events but no `checkout_completed` in the abandonment window (default 30 min). Auto-promotes to `converted` when a matching checkout later lands. Signed recovery-link tokens (time-bounded, non-reusable) — `/ees/abandoned-carts/:id/recovery-link` returns a URL you drop into a recovery email. Slack notification for high-value drops. The Abandoned Carts page is in the plugin on every tier.'),
+            ('Product recommendations', 'With a licence, a denormalised `ProductCoView` table rebuilt every 6 hours from `product_view` events, bounded per session to 20 events so bot sessions can\'t skew the table. Three endpoints: `also-viewed` for a product-page rail, `personal` for a homepage/cart rail based on a returning visitor\'s last 10 product views, `trending` for a most-viewed-in-window rail.'),
             ('Site search analytics', 'Zero-schema-cost queries over `search` events. Top queries by volume with average results count, zero-result queries (direct catalogue-gap intel), search-to-cart conversion rate.'),
             ('Journey drawer buffs', 'Rage-click + dead-click hot-spot lists per URL. Per-session heuristic `intent` label (`purchase` / `abandon` / `frustrate` / `consider` / `browse` / `bounce`) — one glance per session in the visitor drawer.'),
             ('Drop-in storefront helper', 'Ships `/ees/hulo.js` — one script tag and every event helper (`cartSnapshot`, `productView`, `search`, `checkoutCompleted`) is on `window.hulo`. Handles batching, `sendBeacon`, auto rage-click + dead-click detection.'),
-            ('Configurable conversion goals', 'CRUD a goal with a URL glob (`/checkout/thank-you/*`) and a value. Live matcher tags every pageview that hits the pattern. Dashboard shows completions per goal.'),
+            ('Configurable conversion goals', 'With a licence, create page, form and payment goals (a page goal is a URL glob such as `/checkout/thank-you/*` and a value), and take a suggestion. A live matcher tags every pageview that hits the pattern; existing page goals keep counting, and completions per goal stay visible, on the free tier.'),
             ('Full visitor journey', 'Page views, time-on-page, exit pages, configurable funnel, UTM attribution, bot detection. Per-visitor profile drawer with parsed UA + MaxMind GeoLite2 geo. Survives login — guest and signed-in events share the same visitor id.'),
             ('Privacy-first defaults', 'DNT respected, IPs anonymised to /24 (IPv4) / /48 (IPv6), optional `requireConsent` gate. All three opt-outable per install.'),
-            ('Live-now SSE widget', 'Real-time tile on the admin dashboard showing visitors active right now (by country).'),
-            ('CSV export', '`/ees/visitors/export.csv?days=N` and `/ees/abandoned-carts/export.csv` for raw event / abandoned-cart data.'),
+            ('Live-now view', 'With a licence, a real-time view of the visitors active right now and the pages they are on.'),
+            ('CSV export', 'With a licence, `/ees/visitors/export.csv?days=N` and `/ees/abandoned-carts/export.csv` for raw event / abandoned-cart data.'),
+            ('No daily cap, privacy built in', 'The free tier records every event, with no daily cap: dashboards, sources with bounce rate and conversions, landing and exit pages, the funnel, journeys, site search, rage and dead clicks, retention and visitor profiles. Cookieless mode, staff and IP exclusion, URL parameter stripping and personal-data export and erase are free too.'),
             ('Admin dashboards', 'Angular admin pages for Abandoned Carts (KPIs, filters, recovery-link mint, CSV export) and Analytics Insights (trending, also-viewed lookup, search analytics, rage/dead-click hot spots).'),
         ],
         'endpoints': [
             ('POST', '/ees/track',                 'Public: ingest a batch of events'),
-            ('GET',  '/ees/hulo.js',               'Public: drop-in storefront helper JS (0.8.1)'),
+            ('GET',  '/ees/hulo.js',               'Public: drop-in storefront helper JS'),
             ('GET',  '/ees/recover-cart?t=…',      'Public: resolve a recovery-link token → cart items'),
             ('GET',  '/ees/recommendations/also-viewed?productId=…', 'Public: co-view recommendations for one product'),
             ('GET',  '/ees/recommendations/personal?visitorId=…',    'Public: personalised recs from visitor history'),
@@ -839,10 +1024,10 @@ PLUGINS = [
             ('GET',  '/ees/visitors/top-pages',    'Admin: most-visited URLs'),
             ('GET',  '/ees/visitors/funnel',       'Admin: configurable funnel with drop-offs'),
             ('GET',  '/ees/visitors/exit-pages',   'Admin: top exit pages'),
-            ('GET',  '/ees/visitors/live',         'Admin: SSE live-now stream'),
+            ('GET',  '/ees/visitors/live',         'Admin: SSE live-now stream (licensed)'),
             ('GET',  '/ees/visitors/journey/:visitorId', 'Admin: per-visitor timeline'),
-            ('GET',  '/ees/visitors/export.csv',   'Admin: CSV export'),
-            ('POST', '/ees/goals',                 'Admin: create a conversion goal'),
+            ('GET',  '/ees/visitors/export.csv',   'Admin: CSV export (licensed)'),
+            ('POST', '/ees/goals',                 'Admin: create a conversion goal (licensed)'),
             ('GET',  '/ees/goals/stats',           'Admin: per-goal completion stats'),
         ],
     },
@@ -859,9 +1044,9 @@ PLUGINS = [
             'CAD': {'monthly': 'C$23.95', 'lifetime': 'C$479', 'symbol': 'C$', 'label': 'CAD — Canadian dollar'},
         },
         'class': 'FraudPreventionPlugin',
-        'version': '0.1.0',
+        'version': '0.21.0',
         'title': 'Fraud Prevention',
-        'tagline': 'Signal-based risk scoring on every order, monitor/enforce modes, review queue with customisable customer comms, alerts to Slack/Discord/Teams/Telegram, daily threat feeds — chargebacks stopped before fulfilment.',
+        'tagline': 'Signal-based risk scoring on every order, monitor/hold/enforce modes, review queue with customisable customer comms, alerts to Slack/Discord/Teams/Telegram, daily threat feeds — chargebacks stopped before fulfilment.',
         # Meta description (155 characters or fewer), from the tagline.
         'seo_description': 'Risk scoring on every Vendure order: monitor and enforce modes, a review queue, alerts to Slack, Discord, Teams or Telegram, and daily threat feeds.',
         'description': (
@@ -869,29 +1054,32 @@ PLUGINS = [
             'no storefront integration required. Weighted signals (order velocity '
             'per IP and per canonical email identity, disposable email domains, '
             'block/allow lists with CIDR range matching, high-risk countries, '
-            'failed-payment patterns, card AVS postcode/address mismatch, '
+            'failed-payment patterns, card AVS postcode/address mismatch, failed '
+            'CVC checks, card country different from billing, '
             'plus-addressing abuse, first-order value) '
             'roll up to a 0-100 score. Your per-channel thresholds decide what '
-            'happens: log it, hold it for review, or hold it and tell the '
+            'happens: log it, refuse a block-level order before the charge (free '
+            'hold mode), or, with a licence, hold it for review and tell the '
             'customer it is being verified. Digital-goods aware: fulfilment '
             '(licence keys, downloads) waits for approval, so one reviewer '
             'click is the difference between a sale and a chargeback.'
         ),
         'features': [
             ('Server-side enforcement', 'Assessment runs on OrderPlacedEvent inside Vendure — fraudsters can\'t bypass it by skipping your storefront JS. No checkout integration needed.'),
-            ('Weighted signal scoring', 'Velocity (IP/hour, IP/day, email/day, daily value), order value ceilings, disposable emails, list hits, high-risk countries, failed payments, identity fan-out (many emails from one IP = card testing), VPN/proxy/datacentre IPs, IP vs billing-country mismatch, MX-less email domains, billing vs shipping postcode. Every weight overridable per channel.'),
+            ('Weighted signal scoring', 'Velocity (IP/hour, IP/day, email/day, daily value), order value ceilings, disposable emails, list hits, high-risk countries, failed payments, identity fan-out (many emails from one IP = card testing), VPN/proxy/datacentre IPs, IP vs billing-country mismatch, MX-less email domains, billing vs shipping postcode, a failed CVC check, card country vs billing country. Limits follow each order\'s own currency. Every weight overridable per channel, on the free tier.'),
             ('Card AVS mismatch', 'The card issuer\'s own verdict on the billing postcode and street address — the strongest address signal there is. Read automatically from Stripe for orders paid through Vendure\'s StripePlugin (no extra config), from payment metadata for custom handlers, or from a one-line avsResolver hook for any other gateway. Only an explicit fail scores; fails open. AVS fails stand out as red card chips in the review queue and on the order page, and an AVS-fails filter on both the review queue and the activity log shows only those orders — so a reviewer sees the bank\'s verdict before anything else.'),
-            ('Monitor → enforce rollout', 'Start in monitor mode: everything is scored and logged, nothing is held. Watch the Activity tab, tune thresholds, then flip to enforce.'),
-            ('"Off" never means blind', 'Even with protection disabled the engine still scores every order and records a shadow assessment. Risky shadow-scored orders warn in the server log, fan out to your ops channels and can email the admin — so you keep the full risk picture while protection is paused, and turning it back on starts from evidence, not guesswork.'),
+            ('Monitor → hold → enforce rollout', 'Start in monitor mode: everything is scored and logged, nothing is held. Watch the Activity tab and tune thresholds. Hold mode (free) then refuses block-level orders before any payment is taken; enforce mode (licensed) adds the review queue. If a licence lapses, enforce works as hold.'),
+            ('"Off" never means blind', 'Even with protection disabled the engine still scores every order and records a shadow assessment. Risky shadow-scored orders warn in the server log and, with a licence, fan out to your ops channels and can email the admin — so you keep the full risk picture while protection is paused, and turning it back on starts from evidence, not guesswork.'),
             ('Risk score on the order page', 'Every paid order\'s detail page shows the risk score out of 100, level, contributing signals and review-case status — colour-coded, light + dark theme. Your team sees the risk where they already work.'),
-            ('Manual review queue', 'Held orders wait for a human. Approve releases fulfilment; reject cancels — and each can be done silently (no customer email) or, on reject, with a one-click silent blocklist of the email + IP so the fraudster is turned away next time and never tipped off. Alerts fan out to Slack, Discord, Microsoft Teams, Telegram and an HMAC-signed webhook; a per-channel auto-approve timer means nothing strands over a weekend. Full audit trail on every decision.'),
-            ('Fulfilment hold hook', 'One-line host integration: ask pendingOrderIds() before releasing licence keys or shipping. Approval is the gate, not an afterthought.'),
-            ('Daily threat feeds + one-click presets', 'FireHOL Level 1, Spamhaus DROP (CIDR ranges matched properly), Tor exit nodes and ~3,500 disposable-email domains synced nightly — plus seven curated add-with-one-click presets (IPsum L3+, blocklist.de, FireHOL L2/L3, Emerging Threats compromised, CINS Army, StopForumSpam toxic domains). No URL hunting.'),
+            ('Manual review queue', 'With a licence, held orders wait for a human. Approve releases fulfilment and captures an authorised payment; reject cancels — and each can be done silently (no customer email) or, on reject, with a one-click silent blocklist of the email + IP so the fraudster is turned away next time and never tipped off. Alerts fan out to Slack, Discord, Microsoft Teams, Telegram and an HMAC-signed webhook; a per-channel auto-approve timer means nothing strands over a weekend. Full audit trail on every decision.'),
+            ('Fulfilment hold hook', 'One-line host integration: ask heldOrderIds() before releasing licence keys or shipping, or, with a licence, call the HTTP fulfilment gate from a system outside Vendure. Approval is the gate, not an afterthought.'),
+            ('Daily threat feeds + one-click presets', 'With a licence: FireHOL Level 1, Spamhaus DROP (CIDR ranges matched properly), Tor exit nodes and ~3,500 disposable-email domains synced nightly — plus seven curated add-with-one-click presets (IPsum L3+, blocklist.de, FireHOL L2/L3, Emerging Threats compromised, CINS Army, StopForumSpam toxic domains). No URL hunting.'),
             ('Email canonicalisation', 'fraud+1@gmail.com, fraud+2@gmail.com and f.r.a.u.d@gmail.com all count as ONE identity for velocity — the plus-addressing trick stops working.'),
             ('Trust works both ways', 'Returning customers earn NEGATIVE points — a real repeat buyer rarely trips a hold. Allowlisted identities (test accounts, key B2B customers, office IPs) skip every check entirely.'),
             ('Customer messages in your voice', 'Every gating outcome — held, approved, rejected — is a per-channel editable template with variables, live preview and thoughtful defaults: a held order reads as \'a quick security check\' with a stated turnaround, never an accusation, and rejections carry a refund timeline plus a human-appeal path. Each shows a default / customised badge; reset any selection or all of them in one click. You choose when — and whether — customers are told: never, block-level only, or always.'),
-            ('"What-if" simulator', 'Run a hypothetical order (email, IP, value, country, billing / shipping postcodes, card AVS results) against live data and see the exact signal-by-signal score breakdown — without logging or holding anything.'),
-            ('Multi-tab admin dashboard', 'Overview KPIs + daily chart, Rules, Review queue with count badge, Lists, Simulate, customer Lookup dossier (orders, spend, failed payments, case history, one-click allow/block), filterable Activity log with CSV export, Settings. WCAG AA in light and dark themes.'),
+            ('"What-if" simulator', 'Free. Run a hypothetical order (email, IP, value, country, billing / shipping postcodes, card AVS results) against live data and see the exact signal-by-signal score breakdown — without logging or holding anything.'),
+            ('Multi-tab admin dashboard', 'Overview KPIs + daily chart, Rules, Review queue with count badge, Lists, Simulate, customer Lookup dossier (orders, spend, failed payments, case history, one-click allow/block), filterable Activity log with CSV export, Settings, and a risk column on the orders list. WCAG AA in light and dark themes.'),
+            ('IP intelligence, opt-in', 'VPN, proxy and hosting detection and IP country vs billing country, from ip-api.com Pro with your own key, over HTTPS. Off by default; private and reserved addresses are never sent, and answers are cached.'),
         ],
         'endpoints': [
             ('POST', '/fraud-prevention/check',            'Public: storefront pre-check (rate limited, minimal shape)'),
@@ -904,6 +1092,7 @@ PLUGINS = [
             ('POST', '/fraud-prevention/simulate',         'Admin: dry-run with full signal breakdown'),
             ('GET',  '/fraud-prevention/log',              'Admin: filterable audit log'),
             ('POST', '/fraud-prevention/lists/sync',       'Admin: threat-feed sync (licensed)'),
+            ('GET',  '/fraud-prevention/gate/:orderId',    'Admin: HTTP fulfilment gate, releasable or not (licensed)'),
             ('GET',  '/fraud-prevention/order-assessment/:orderId', 'Admin: score + signals for the order-page panel'),
             ('GET',  '/fraud-prevention/feeds/presets',    'Admin: curated threat-feed presets'),
         ],
@@ -921,7 +1110,7 @@ PLUGINS = [
             'CAD': {'monthly': 'C$26.95', 'lifetime': 'C$539', 'symbol': 'C$', 'label': 'CAD — Canadian dollar'},
         },
         'class': 'BusinessCreditPlugin',
-        'version': '0.1.0',
+        'version': '0.5.0',
         'title': 'Business Credit',
         'tagline': 'The credit-customer platform for Vendure B2B: applications, invitations and auto-approval, per-customer limits with an audit trail, multi-user company accounts, Pay on Account with net-terms invoices, prepaid funds, settlements by any method with Stripe pay links, payment plans, statements, dunning and a reward-points programme — in one admin dashboard and one storefront API.',
         # Meta description (155 characters or fewer), from the tagline.
@@ -942,30 +1131,34 @@ PLUGINS = [
             'logged with who and why. A daily run marks invoices overdue, sends '
             'reminders on a schedule you set, applies late fees if you want them, '
             'suspends accounts that go too far past due, and emails monthly '
-            'statements with an aging summary. Customers see their limit, available '
+            'statements with an aging summary (with a licence; the one-click '
+            'reminder on an invoice is free). Customers see their limit, available '
             'credit, invoices and statements through a small REST API you can drop '
             'into any storefront. Customers can also pay money in ahead of time: '
             'prepaid funds are held on the account and settle new orders the '
-            'moment they are placed. Companies can add colleagues to one account '
-            'with buyer or viewer roles, you can invite a business straight to '
+            'moment they are placed. You can add colleagues to a company account '
+            'with buyer or viewer roles and raise invoices by hand for work that '
+            'never went through the checkout. With a licence, account holders '
+            'invite colleagues themselves, you can invite a business straight to '
             'an approved account by email, applications that meet your rules are '
-            'approved automatically, every account gets a review date, an '
-            'overdue invoice can be put on an instalment plan, and an optional '
-            'reward-points programme earns points on every paid order and lets '
-            'customers spend them at checkout.'
+            'approved automatically, an overdue invoice can be put on an '
+            'instalment plan, and an optional reward-points programme earns '
+            'points on paid orders and invoices and lets customers spend them at '
+            'checkout or against an invoice. Every account gets a review date.'
         ),
         'features': [
-            ('Credit applications and approvals', 'A storefront application form (company, registration and VAT numbers, requested limit and terms, trade references) lands in an admin queue. Approve with a limit and net terms, or reject with a note; the customer is emailed either way and the account is created on approval.'),
+            ('Credit applications and approvals', 'Free: a storefront application form (company, registration and VAT numbers, requested limit and terms, trade references) lands in an admin queue. Approve with a limit and net terms, or reject with a note; the customer is emailed either way and the account is created on approval.'),
             ('Limits with an audit trail', 'Permanent or temporary limit changes (a temporary increase expires on a date you set), each recorded with the old value, new value, reason and administrator. Available credit is derived live: effective limit minus open invoices plus any credit balance.'),
             ('Pay on Account at checkout', 'The `business-credit` payment handler settles the order and issues a numbered invoice with a due date; the eligibility checker hides the method from customers without an active account, enough available credit, or with an overdue hold. Purchase-order numbers can be required.'),
-            ('Settlements by any method', 'Record bank transfers, direct debits, cheques, cash, credit notes and write-offs, or send a Stripe pay link for card payment; the signed webhook records the settlement. Allocation is oldest-first or explicit per invoice; overpayment becomes account credit and is applied to the next invoices automatically.'),
-            ('Statements with aging', 'Per-account statements for any period: opening balance, every charge and payment, closing balance, and aging buckets (current, 1–30, 31–60, 61–90, 90+). HTML for the admin and the customer, emailed monthly on the statement day.'),
-            ('Reminders, late fees, auto-suspend', 'A daily run sends reminders before, on and after the due date on a schedule you set per channel, applies a monthly late fee pro rata if configured, and suspends accounts that go more than N days overdue — reactivate with one click once they pay.'),
-            ('Prepaid funds', 'Customers top up by card from the storefront or you record a deposit; the money is held on the account and settles invoices and new on-account orders automatically. Prepaid-only accounts work with a zero credit limit.'),
-            ('Company accounts, invitations and auto-approval', 'One account, several logins: owners add colleagues as buyers or viewers. Invite a business by email straight to an approved limit. Applications that meet your rules — company number, order history, spend — are approved on the spot. Every account carries a review date.'),
-            ('Payment plans', 'Split an outstanding invoice into instalments with their own due dates; reminders and overdue logic follow the plan, late fees pause, and customers can request a plan from their account.'),
-            ('Reward points', 'An optional loyalty programme per channel: points per pound with tiers and multipliers, redeemed at checkout as a discount, with expiry, adjustments, statements and a customer points page.'),
-            ('Customer-facing REST API', '`/business-credit/my/*` gives your storefront the account summary, funds, invoices, statements, pay links, team members, invitations, payment-plan requests and reward points for the signed-in customer, plus the application form. Works with Qwik, Next.js, Remix or plain fetch.'),
+            ('Settlements by any method', 'Record bank transfers, direct debits, cheques, cash, credit notes and write-offs, or send a Stripe pay link for card payment (one invoice on the free tier; several at once with a licence); the signed webhook records the settlement. Allocation is oldest-first or explicit per invoice; overpayment becomes account credit and is applied to the next invoices automatically.'),
+            ('Statements with aging', 'Per-account statements for any period: opening balance, every charge and payment, closing balance, and aging buckets (current, 1–30, 31–60, 61–90, 90+). HTML for the admin and the customer, and, with a licence, emailed monthly on the statement day.'),
+            ('Reminders, late fees, auto-suspend', 'With a licence, a daily run sends reminders before, on and after the due date on a schedule you set per channel, applies a monthly late fee pro rata if configured, and suspends accounts that go more than N days overdue — reactivate with one click once they pay. On every tier, Remind on an open invoice e-mails the customer a reminder now.'),
+            ('Invoices raised by hand', 'Bill an account for work or goods that never went through the checkout: typed lines, PO, terms and a note. The invoice counts against the credit limit like an order on account and is e-mailed with its lines. Free.'),
+            ('Prepaid funds', 'You record a deposit or, with a licence, customers top up by card from the storefront; the money is held on the account and settles invoices and new on-account orders automatically. Prepaid-only accounts work with a zero credit limit.'),
+            ('Company accounts, invitations and auto-approval', 'One account, several logins: an admin adds colleagues as buyers or viewers (free), and with a licence the account holder can invite them from the storefront. Also licensed: invite a business by email straight to an approved limit, and approve applications that meet your rules — company number, order history, spend — on the spot. Every account carries a review date.'),
+            ('Payment plans', 'With a licence, split an outstanding invoice into instalments with their own due dates; reminders and overdue logic follow the plan, late fees pause, and customers can request a plan from their account.'),
+            ('Reward points', 'With a licence, an optional loyalty programme per channel: points per pound with tiers and multipliers, earned on paid orders and on invoices raised by hand, redeemed at checkout as a discount or against an open invoice, with expiry and adjustments. Your storefront shows the balance and history from the customer REST API.'),
+            ('Customer-facing REST API', '`/business-credit/my/*` gives your storefront the account summary, funds, invoices, statements, pay links, team members, invitations, payment-plan requests and reward points for the signed-in customer, plus the application form; the statement also comes as a ready-made HTML page (`my/statement?format=html`). Rate-limited where it matters (applications, invitations, invitation links). Works with Qwik, Next.js, Remix or plain fetch.'),
             ('Admin dashboard', 'Overview (exposure, overdue, credit held, due this week, aging), Accounts with a full detail panel, Applications queue, Invoices, Settlements, Settings with email preview and a run-now button, plus the Licence & billing card. Light and dark themes.'),
         ],
         'endpoints': [
@@ -984,14 +1177,14 @@ PLUGINS = [
             ('GET',  '/business-credit/my/account',                'Shop: limit, available credit, terms, status'),
             ('POST', '/business-credit/my/apply',                  'Shop: apply for a credit account'),
             ('GET',  '/business-credit/my/invoices',               'Shop: my invoices'),
-            ('POST', '/business-credit/my/invoices/pay-link',      'Shop: pay selected invoices by card'),
-            ('POST', '/business-credit/my/top-up',                 'Shop: add prepaid funds by card'),
-            ('POST', '/business-credit/my/members',                'Shop: add a colleague to the company account'),
+            ('POST', '/business-credit/my/invoices/pay-link',      'Shop: pay an invoice by card (several at once: licensed)'),
+            ('POST', '/business-credit/my/top-up',                 'Shop: add prepaid funds by card (licensed)'),
+            ('POST', '/business-credit/my/members',                'Shop: the account holder adds a colleague (licensed)'),
             ('POST', '/business-credit/my/invitations/accept',     'Shop: accept an invitation to an approved account'),
-            ('POST', '/business-credit/invitations',               'Admin: invite a business by email'),
-            ('POST', '/business-credit/invoices/:id/plan',         'Admin: put an invoice on an instalment plan'),
-            ('POST', '/business-credit/my/loyalty/redeem',         'Shop: spend reward points on the active order'),
-            ('GET',  '/business-credit/loyalty/stats',             'Admin: points outstanding, earned and redeemed'),
+            ('POST', '/business-credit/invitations',               'Admin: invite a business by email (licensed)'),
+            ('POST', '/business-credit/invoices/:id/plan',         'Admin: put an invoice on an instalment plan (licensed)'),
+            ('POST', '/business-credit/my/loyalty/redeem',         'Shop: spend reward points on the active order (licensed)'),
+            ('GET',  '/business-credit/loyalty/stats',             'Admin: points outstanding, earned and redeemed (licensed)'),
         ],
     },
     {
@@ -1007,7 +1200,7 @@ PLUGINS = [
             'CAD': {'monthly': 'C$12.49', 'lifetime': 'C$249', 'symbol': 'C$', 'label': 'CAD — Canadian dollar'},
         },
         'class': 'HuloPaymentsPlugin',
-        'version': '0.1.0',
+        'version': '0.4.0',
         'title': 'Payments',
         'tagline': 'One payments plugin for Vendure: eleven payment systems — Stripe, Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com, crypto, bank transfer and pay-later — behind a single contract, with a hosted checkout page, wallets, 3-D Secure, captures, refunds, disputes, saved cards, subscriptions, pay-by-link, routing and one ledger.',
         # Meta description (155 characters or fewer), from the tagline.
@@ -1021,36 +1214,41 @@ PLUGINS = [
             'with the provider before Vendure records the payment. Manual capture, '
             'partial captures and refunds work the same way on every provider. '
             'Webhooks are signature-checked and idempotent, disputes land in the '
-            'ledger and alert ops, signed-in customers can save a card, any product '
+            'ledger and alert ops, signed-in customers can save a card (licensed), any product '
             'variant can become a subscription (billed natively by Stripe, PayPal or '
-            'Mollie, or by the plugin\'s scheduler from an Adyen token), and any '
-            'unpaid order can be settled by a payment link. Provider order, fallback '
-            'on decline, eligibility rules and surcharges are per channel. Everything '
+            'Mollie, or by the plugin\'s scheduler from an Adyen token; licensed), and any '
+            'unpaid order can be settled by a payment link (free for the hosted page and '
+            'Stripe). Provider order, fallback on decline, eligibility rules and surcharges '
+            'are per channel. Stripe, bank transfer, pay later, the hosted checkout page, '
+            'pay links, the ledger and the dashboard are free; the other eight providers '
+            'need a licence. Everything '
             'lands in one ledger with a dashboard under Sales → Payments.'
         ),
         'features': [
-            ('Hosted checkout page', 'One mutation and a redirect. The plugin serves a branded payment page that lists every enabled method, drives each provider\'s own client (Stripe Payment Element, Adyen Drop-in, PayPal buttons, Square, Braintree, hosted redirects, bank-transfer instructions) and sends the customer back to your storefront paid. No provider code in your storefront at all.'),
-            ('Eleven payment systems, one contract', 'Stripe, Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com, Coinbase Commerce (crypto), bank transfer and pay-later / invoice — all as Vendure payment method handlers with the same capture, refund, webhook, ledger and admin behaviour. Connect any of them from the Payments page: paste the keys, the plugin checks them, sets up the webhook and creates the method.'),
+            ('Hosted checkout page, free', 'One mutation and a redirect. The plugin serves a branded payment page that lists every enabled method, drives each provider\'s own client (Stripe Payment Element, Adyen Drop-in, PayPal buttons, Square, Braintree, hosted redirects, bank-transfer instructions) and sends the customer back to your storefront paid. No provider code in your storefront at all.'),
+            ('Eleven payment systems, one contract', 'Stripe, Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com, Coinbase Commerce (crypto), bank transfer and pay-later / invoice — all as Vendure payment method handlers with the same capture, refund, webhook, ledger and admin behaviour. Connect any of them from the Payments page: paste the keys, the plugin checks them, sets up the webhook and creates the method. Stripe, bank transfer and pay later are free; the other eight need a licence.'),
             ('Wallets and local methods included', 'Apple Pay, Google Pay, Link, iDEAL, Bancontact, Klarna, SEPA, PayPal, Venmo and Pay Later — whatever each provider enables shows up in its hosted element with 3-D Secure handled by the provider.'),
             ('Verified server-side', 'The storefront never decides a payment state. The plugin re-reads the intent, session or order from the provider and checks amount, currency and order code before addPaymentToOrder.'),
             ('Capture control', 'Automatic or manual capture per method, partial captures, cancels, full and partial refunds — all from the normal Vendure order and refund screens.'),
-            ('Signed, idempotent webhooks', 'Stripe signatures, Adyen HMAC, PayPal verification, Square and Checkout.com HMAC, GoCardless and Coinbase signatures, Mollie fetch-back. Duplicate deliveries are ignored; payments, refunds and subscriptions are updated; a webhook log shows every delivery.'),
-            ('Disputes', 'Chargebacks and reversals from any provider land in the ledger with their reason and alert ops by webhook or email.'),
-            ('Saved cards', 'Stripe Customers and Adyen stored payment methods for signed-in customers, listed and removed through the shop API.'),
-            ('Subscriptions', 'Set a billing interval on any product variant. The order charges the first period; Stripe, PayPal and Mollie bill natively, Adyen renewals are charged by the plugin from the stored card. Dunning, MRR, customer self-service cancel, admin pause / resume / cancel.'),
-            ('Pay by link', 'One click creates a provider-hosted payment link for any unpaid order — draft orders, accepted quotes, phone orders — and the webhook settles it.'),
-            ('Routing, rules and surcharges', 'Provider order per channel with fallback on decline, an eligibility checker (amount band, currencies, countries, customer groups, signed-in only) for any payment method, and optional per-provider surcharges.'),
+            ('Signed, idempotent webhooks', 'Stripe signatures, Adyen HMAC, PayPal verification, Square and Checkout.com HMAC, GoCardless and Coinbase signatures, Mollie fetch-back. Each payment method has its own endpoint, `<publicBaseUrl>/hulo-payments/webhook/<handler code>` (for example `/hulo-payments/webhook/hulo-stripe`); the Providers tab shows the exact URL. Duplicate deliveries are ignored; payments, refunds and subscriptions are updated; a webhook log shows every delivery.'),
+            ('Disputes', 'Chargebacks reported by Stripe, Adyen, PayPal, Mollie, Square, Checkout.com and GoCardless land in the ledger with their reason and alert ops by webhook or email (Braintree, Coinbase Commerce, bank transfer and pay later report none).'),
+            ('Dashboard refunds reconciled', 'Switch it on per channel and a refund made in the provider\'s own dashboard becomes a settled Vendure refund on the order\'s payment, once, with an order-history note — never more than is left to refund. Free.'),
+            ('Saved cards', 'With a licence: Stripe Customers and Adyen stored payment methods for signed-in customers, listed and removed through the shop API.'),
+            ('Subscriptions', 'With a licence, set a billing interval on any product variant. The order charges the first period; Stripe, PayPal and Mollie bill natively, Adyen renewals are charged by the plugin from the stored card. Dunning, MRR, customer self-service cancel, admin pause / resume / cancel.'),
+            ('Pay by link, free', 'One click creates a payment link for any unpaid order — draft orders, accepted quotes, phone orders: this shop\'s own hosted payment page, or a provider-hosted page (Stripe on the free tier, the other providers with a licence), deposits and balances included. The payment or the provider\'s webhook settles it.'),
+            ('Routing, rules and surcharges', 'Provider order per channel and an eligibility checker (amount band, currencies, countries, customer groups, signed-in only) for any payment method, free; with a licence, fallback to the next provider after a decline and optional per-provider surcharges.'),
+            ('Rate limits', 'Per-IP limits on the public routes: the hosted page, its actions, webhooks and CSP reports.'),
             ('One ledger, one dashboard', 'Authorisations, captures, refunds, disputes, failures, renewals and pay-links by provider and day, success rate, subscriptions and settings under Sales → Payments. Light and dark themes.'),
             ('No SDKs, PostgreSQL ready', 'Each provider is a handful of REST calls on the platform fetch; tables are created on boot on MySQL, MariaDB and PostgreSQL.'),
         ],
         'endpoints': [
             ('GET',  '/hulo-payments/pay/:token',        'Public: the hosted checkout page for one order'),
-            ('POST', '/hulo-payments/webhook/:provider', 'Provider webhooks (stripe, adyen, paypal, mollie, square, gocardless, checkout-com, coinbase)'),
+            ('POST', '/hulo-payments/webhook/:handlerCode', 'Provider webhooks, one URL per payment method handler, e.g. /hulo-payments/webhook/hulo-stripe'),
             ('GET',  '/hulo-payments/dashboard',         'Admin: KPIs by provider and day, subscriptions'),
             ('GET',  '/hulo-payments/transactions',      'Admin: the ledger, filterable'),
             ('GET',  '/hulo-payments/providers',         'Admin: configured methods, capabilities, webhook URLs'),
             ('GET',  '/hulo-payments/subscriptions',     'Admin: subscriptions (cancel / pause / resume actions)'),
-            ('POST', '/hulo-payments/pay-link',          'Admin: payment link for an unpaid order (licensed)'),
+            ('POST', '/hulo-payments/pay-link',          'Admin: payment link for an unpaid order (hosted page or Stripe free; other providers licensed)'),
             ('GET',  '/hulo-payments/settings',          'Admin: routing, surcharges, ops per channel'),
             ('GQL',  'huloHostedCheckout',               'Shop: URL of the hosted checkout page for the active order'),
             ('GQL',  'huloPaymentProviders',             'Shop: providers to offer for the active order'),
@@ -1071,7 +1269,7 @@ PLUGINS = [
             'CAD': {'monthly': 'C$23.95', 'lifetime': 'C$479', 'symbol': 'C$', 'label': 'CAD — Canadian dollar'},
         },
         'class': 'CheckoutGuardPlugin',
-        'version': '0.1.0',
+        'version': '0.4.0',
         'title': 'Checkout Guard',
         'tagline': 'The safety layer around Vendure checkout and payments: Stripe manual-capture holds that actually place the order, bank transfer with auto-expiry, failed-payment and orphaned-charge visibility with nightly Stripe reconciliation, session-bound order lookup, checkout rate limits and a funnel — in one admin dashboard.',
         # Meta description (155 characters or fewer), from the tagline.
@@ -1095,15 +1293,18 @@ PLUGINS = [
             'is lost.'
         ),
         'features': [
-            ('Manual-capture holds that place the order', 'A `stripe-hold` payment handler plus a signed webhook for `payment_intent.amount_capturable_updated`: the order becomes PaymentAuthorized the moment the hold is placed. Capture or cancel from the dashboard or the Vendure order page; a safety capture runs before the authorisation expires; alerts fan out to your ops channels.'),
-            ('Bank transfer done properly', 'Account details travel in the payment\'s public metadata so the storefront and confirmation page render them without hard-coding; an eligibility checker (min/max, guests, customer groups); unpaid orders expire automatically after N days with a reminder event before that; a "received" button settles the order and releases fulfilment.'),
-            ('Failed payments you can see', 'Webhook declines, storefront-reported declines, orphaned charges and settled amounts that differ from the order total are written to a payment-event log with the IP — so fraud tooling can count them and you can spot a broken checkout before customers email you.'),
-            ('Nightly Stripe reconciliation', 'Every succeeded or held PaymentIntent from the last days is matched to a Vendure payment; anything unmatched is flagged and alerted, per channel, with the Stripe key each channel already has.'),
+            ('Manual-capture holds that place the order', 'A `stripe-hold` payment handler plus a signed webhook for `payment_intent.amount_capturable_updated`: the order becomes PaymentAuthorized the moment the hold is placed. The hold list, with capture and release from the dashboard or the Vendure order page, is free. With a licence, holds below a threshold capture themselves, a safety capture runs before the authorisation expires, holds from HULO Payments for Vendure join the list and alerts fan out to your ops channels.'),
+            ('Bank transfer done properly', 'Account details travel in the payment\'s public metadata so the storefront and confirmation page render them without hard-coding; an eligibility checker (min/max, guests, customer groups); a "received" button settles the order and releases fulfilment. With a licence, unpaid orders expire automatically after N days, with a reminder and customer e-mails before that.'),
+            ('Stripe bank transfers (opt-in)', 'Switch it on and each bank-transfer order gets the customer\'s own Stripe virtual account: a UK sort code and account number for GBP or, where your Stripe account accepts them, an IBAN for EUR. Stripe matches the money to the order and the plugin settles the payment, so fulfilment runs without anyone matching payments by hand. Free.'),
+            ('Failed payments you can see', 'Webhook declines and storefront-reported declines go to the decline log on every tier, so fraud tooling can count them and you can spot a broken checkout before customers email you. With a licence, reconciliation adds orphaned charges and settled amounts that differ from the order total.'),
+            ('Nightly Stripe reconciliation', 'With a licence, every succeeded or held PaymentIntent from the last days is matched to a Vendure payment; anything unmatched is flagged and alerted, per channel, with the Stripe key each channel already has.'),
             ('Session-bound order lookup', 'Vendure lets anyone with an order code read a fresh order for two hours. Checkout Guard binds anonymous access to the session that placed it — the confirmation page still works, strangers with a code do not.'),
             ('Trusted client IP', 'A shared-secret header contract for server-side proxies (Qwik server$, Next.js route handlers) so the order IP that feeds fraud scoring cannot be spoofed by a browser.'),
-            ('Checkout rate limits', 'Token-bucket limits on applyCouponCode, addPaymentToOrder, createStripePaymentIntent and transitionOrderToState, keyed by client IP, returning a clean 429 — stops coupon brute force and intent spam without touching nginx.'),
+            ('Checkout rate limits', 'Token-bucket limits on applyCouponCode, addPaymentToOrder, createStripePaymentIntent and transitionOrderToState, keyed by client IP, returning a clean 429 — stops coupon brute force and intent spam without touching nginx. Kept per process, or shared across servers through the database or Vendure\'s cache (opt-in).'),
+            ('Card-testing gate', 'On by default: after repeated declines from one connection, its payment calls are refused for 12 hours, and an order with repeated failures can be refused a new payment (automatically with the opt-in order gate). Blocked connections are listed in the admin, with Unblock.'),
+            ('Opt-in guards', 'A login guard against brute force on the Admin and Shop API logins, a limit on orderByCode lookups and the client IP stored on the order. Each is off until you switch it on. Settings can be edited in the admin over the code\'s options.'),
             ('Checkout funnel', 'Step, attempt, failure and coupon-rejection events from the storefront, summarised per step with drop-off percentages, so single-URL checkouts stop being invisible to analytics.'),
-            ('Ops alerts', 'Slack, Discord, Microsoft Teams, Telegram, a signed webhook and email — every hold, expiry, orphan and drift can ping the channel your team actually reads.'),
+            ('Ops alerts', 'With a licence: Slack, Discord, Microsoft Teams, Telegram, a signed webhook and email — every hold, expiry, orphan and drift can ping the channel your team actually reads.'),
             ('Admin dashboard', 'Overview KPIs, Holds, Bank transfers, Payment events, Funnel and Settings tabs, plus the Licence & billing card. Light and dark themes.'),
         ],
         'endpoints': [
@@ -1124,7 +1325,7 @@ PLUGINS = [
         'slug': 'review-requests',
         'pkg': '@huloglobal/vendure-plugin-review-requests',
         'class': 'ReviewRequestPlugin',
-        'version': '0.1.0',
+        'version': '0.17.0',
         # Review Requests is priced below the standard plugin rate and sells in
         # Real per-currency prices — must match the currency_options on the
         # Stripe price objects.
@@ -1138,27 +1339,30 @@ PLUGINS = [
         'title': 'Review Requests',
         'tagline': 'Automated post-purchase Trustpilot review invitations, timed off order dates — free Trustpilot integration, customer exclusions, cooldown, editable emails.',
         'description': (
-            'Turn happy customers into reviews on autopilot. An hourly worker finds '
+            'Turn happy customers into reviews on autopilot. With a licence, an hourly worker finds '
             'orders that reached Delivered / Payment settled / Shipped a set number of '
             'days ago and emails the customer a branded, Trustpilot-style invitation '
             'linking to your FREE Trustpilot review page — no paid Automatic Feedback '
             'Service. Optionally pull your live TrustScore from the free Trustpilot API '
             'to show as social proof. Exclude any customer or domain, respect a '
             'per-customer cooldown, dedupe per order, and let anyone unsubscribe in one '
-            'click. Fully editable email with live preview and test-send, per channel.'
+            'click. Fully editable email with live preview and test-send, per channel. '
+            'On the free tier you send the invitation for one order from its order page.'
         ),
         'features': [
-            ('Timed off order dates', 'Send N days after an order reaches Delivered, Payment settled or Shipped — whichever milestone you choose, per channel.'),
+            ('Timed off order dates', 'With a licence, send N days after an order reaches Delivered, Payment settled or Shipped — whichever milestone you choose, per channel.'),
             ('Free Trustpilot, done right', 'The review button links to trustpilot.com/evaluate/your-domain — organic Service Reviews, completely free. No paid AFS, no per-invite cost.'),
-            ('Live rating as social proof', 'Show your current star rating + review count right in the email ("Rated 4.8 by 1,240 customers") — pulled live from Trustpilot or Google. Optional; the email works without it.'),
-            ('Trustpilot, Google or anywhere', 'One-click platform picker builds the review link for Trustpilot, Google reviews, Reviews.io — or paste any custom URL. Trustpilot and Google also show a live star rating in the email.'),
+            ('Live rating as social proof', 'With a licence, show your current star rating + review count right in the email ("Rated 4.8 by 1,240 customers") — pulled live from Trustpilot, or from Google Places with your own Maps API key and Place ID. Optional; the email works without it.'),
+            ('Trustpilot, Google or anywhere', 'One-click platform picker builds the review link for Trustpilot, Google reviews (Place ID), Reviews.io (`reviews.io/company-reviews/store/<id>`) — or paste any custom URL. Paste your review page and the plugin takes the domain, Place ID or store ID from it; an identifier the platform cannot use is refused with the reason. Until the review page is set nothing is sent, so there are no dead review buttons.'),
             ('Product reviews too', 'Ask for a store review, product reviews, or both. In product mode the email lists the actual items the customer bought, each with its own "Review this" button linking to your storefront\'s product-review page.'),
-            ('Exclude customers', 'Never invite specific emails or whole domains — wholesale accounts, staff, VIPs. One-click unsubscribe in every email auto-excludes.'),
+            ('Exclude customers', 'Never invite specific emails or whole domains — wholesale accounts, staff, VIPs. One-click unsubscribe in every email adds the customer to the unsubscribed list, shown on the Exclusions tab; they are never invited again, not even by Resend.'),
             ('No over-asking, no double-sends', 'Deduped per order with a concurrency guard on the sender, a per-customer cooldown (default 120 days), and a minimum order value — a customer can\'t be invited twice for one order, and every skip is audit-logged once with its reason.'),
             ('Your voice', 'Fully editable subject + HTML body per channel with {{firstName}}, {{orderCode}}, {{businessName}}, {{reviewUrl}} and a live rating block, plus preview and test-send.'),
-            ('Multi-tab admin', 'Overview (sent / eligible now / opt-outs / failed + your live rating), Settings, Email, Exclusions and an Activity log. WCAG AA in light + dark.'),
-            ('Send from the order page', 'Every order\'s detail page shows its invitation status — sent, scheduled, excluded or opted out — with a manual Send now, a confirmed Resend, and a send-anyway override for staff judgement calls.'),
-            ('GDPR-friendly', 'Signed one-click unsubscribe links, an opt-out list, and full send-log auditing.'),
+            ('Multi-tab admin', 'Overview (sent / clicked / eligible now / opt-outs / failed + your live rating), Settings, Email, Customers, Exclusions and an Activity log, plus a dashboard widget. WCAG AA in light + dark.'),
+            ('Send from the order page', 'Free: the Review invitation panel on every order sends the invitation now (opt-outs, exclusions, the cooldown and the hourly limit apply) and adds a staff-only note to the order. With a licence, Resend overrides a previous invitation, an exclusion or the cooldown — never an opt-out.'),
+            ('Lists, bulk and "Not invited yet"', 'With a licence, invite customers from a pasted or CSV list now or on a schedule, invite a selection of recent orders that have had no invitation, or use Send review invitation on the Orders list.'),
+            ('Click tracking', 'The review button goes through a signed redirect, so the Overview shows how many invitations were opened and the click-through rate — not just how many were sent.'),
+            ('GDPR-friendly', 'Signed one-click unsubscribe links, the unsubscribed list, and full send-log auditing.'),
         ],
         'endpoints': [
             ('GET',  '/review-requests/optout',          'Public: signed one-click unsubscribe page'),
@@ -1172,7 +1376,7 @@ PLUGINS = [
             ('POST', '/review-requests/test-send',       'Admin: send a test to yourself'),
             ('POST', '/review-requests/exclusions',      'Admin: exclude an email / domain'),
             ('GET',  '/review-requests/order-status/:orderId', 'Admin: invitation state for the order-page panel'),
-            ('POST', '/review-requests/send-order/:orderId',   'Admin: manual send / resend from the order page'),
+            ('POST', '/review-requests/send-order/:orderId',   'Admin: send from the order page (Resend: licensed)'),
         ],
     },
 ]
@@ -2266,19 +2470,19 @@ def index_page():
         'geo-block': [
             '37 region presets (EU, EEA, GCC, NATO, …)',
             'Soft-block (browse-only) mode',
-            'IP allowlist with CIDR',
+            'IPv4 / IPv6 allowlist, business hours, maintenance windows',
             '"What-if" simulator + stats panel',
         ],
         'visitor-analytics': [
             'Page views + funnel + exit pages',
             'Conversion goals with URL globs',
             'Bot detection + privacy-first defaults',
-            'Live-now SSE widget',
+            'Every event recorded free, no daily cap',
         ],
         'fraud-prevention': [
             'Risk score on every order, server-side',
             'Card AVS postcode / address mismatch from the issuer',
-            'Monitor / enforce modes + review queue',
+            'Monitor / hold / enforce modes + review queue',
             'Threat feeds: FireHOL, Spamhaus, Tor, disposable emails',
             'Fulfilment held until a human approves',
         ],
@@ -2324,10 +2528,10 @@ def index_page():
         ('MySQL / MariaDB / PostgreSQL', same('yes')),
         ('Licence activation in the admin', same('yes')),
         ('One-click in-app updates', same('yes')),
-        # Counted in each package's source (2026-11-04): its entities and the
+        # Counted in each package's source (2026-11-13, the parity-wave versions): its entities and the
         # tables it creates on boot, not the licence store every plugin shares.
-        ('Database tables', {'quotations': '4', 'email-tracking': '4', 'geo-block': '1', 'visitor-analytics': '5',
-                             'fraud-prevention': '10', 'review-requests': '7', 'checkout-guard': '5',
+        ('Database tables', {'quotations': '9', 'email-tracking': '4', 'geo-block': '1', 'visitor-analytics': '7',
+                             'fraud-prevention': '10', 'review-requests': '8', 'checkout-guard': '7',
                              'business-credit': '15', 'payments': '7'}),
         ('Privacy controls', {'quotations': 'Signed links, no tracking pixels', 'email-tracking': 'IP hash',
                               'geo-block': 'IP allowlist', 'visitor-analytics': 'DNT, IP anonymisation, consent gate',
@@ -2421,7 +2625,7 @@ def index_page():
         ('Can I export or delete my data?', f'Yes — under UK GDPR you have a right to see, export and erase the personal data we hold. Visit <a class="underline underline-offset-2" href="{LICENCE_PAGES}/privacy">huloglobal.com/licence/privacy</a> and we\'ll email you a magic link to do both.'),
         ('Do the plugins call home?', 'Only about the licence, and never with customer data. The licence key itself is verified offline, against a public key built into the plugin. Once a day each plugin sends our licence server a heartbeat (the plugin\'s name and version, its licence id if it has one, and a fingerprint of the build) and, while it has no licence key, a check-in with an installation id (a hash of the server\'s hostname and platform, not the hostname itself) so the server can keep the 14-day evaluation clock. They carry usage counts, numbers only and never names, emails or orders, so the reminder and renewal emails can say what the plugin did. The licence server keeps the IP address a check-in last came from, and links an installation to your licence if you buy from its admin page; the <a class="underline underline-offset-2" href="/legal/privacy/">Privacy Policy</a> says what we keep and why. Once a week the plugin fetches the licence revocation list (cached and soft-fail, so a brief outage at our end never disables your store), after you click <strong>Subscribe</strong> in the admin it asks the licence server for your new key, and once a day it asks the npm registry whether a newer version is out. Set <code>HULO_HEARTBEAT_DISABLED=true</code> to stop the heartbeat; the licence keeps working.'),
         ('Where does customer data live?', 'On your Vendure server — same DB as the rest of your data. No third-party analytics provider. The visitor-analytics plugin\'s ingest endpoint is on your domain.'),
-        ('What if I don\'t buy a licence?', 'Plugins still boot in a free tier — install, configure, browse data, and the admin UI is functional. The public storefront endpoints are limited (geo-block always reports <code>enabled:false</code>; visitor-analytics dashboards return 403). Buy a key when you\'re ready.'),
+        ('What if I don\'t buy a licence?', 'Each plugin keeps running in its free tier after the 14 days, for as long as you like: every product page lists what the free tier includes under <strong>Free tier vs licensed</strong>. Geo-block, for example, keeps enforcing your rules with five presets, and Visitor Analytics keeps recording every event with no daily cap. The weekly report and the set-up checklist need a licence. Your settings and data are kept, so a key switches the licensed features straight back on.'),
         ('Can I see the source?', 'The plugins are licensed under the GNU AGPL-3.0, and a paid licence key switches on the premium features.' + src_sentence),
         ('Do they work on Vendure 2.x?', f'They need Vendure {min_v} or later (any 3.x from {min_v}). Vendure 2.x isn\'t supported because we use some of the 3.x customField improvements.'),
     ]
@@ -2593,7 +2797,7 @@ compileUiExtensions({{
         # "Do the plugins call home?" and THIRD_PARTY).
         ('Where is data stored?',
          'In your Vendure database: the plugin keeps its data in its own tables there'
-         + (' (added with a migration).' if needs_migration and p['slug'] not in MIGRATION_WHY else ', created on boot.')
+         + (' (added with a migration).' if needs_migration and p['slug'] not in ('payments', 'checkout-guard') else ', created on boot.')
          + ' Hulo Global never receives your customer data: the plugin sends our licence server only the licence check-ins and usage counts described under '
          + '<a class="underline underline-offset-2" href="/vendure-plugins/#call-home">“Do the plugins call home?”</a>.'
          + (' ' + html.escape(third) if third else '')),
@@ -2636,7 +2840,7 @@ compileUiExtensions({{
 <div class="container-page max-w-3xl">
 <p class="text-sm font-semibold uppercase tracking-wider text-accent-600">Free tier vs licensed</p>
 <h2 class="mt-3 text-3xl md:text-4xl font-bold tracking-tight text-ink-900">Try the whole thing, keep the core for free.</h2>
-<p class="mt-4 text-ink-600">Install without a key and everything in the free tier works indefinitely. The 14-day trial switches the licensed features on with your real traffic; a licence keeps them on.</p>
+<p class="mt-4 text-ink-600">Every new install has every feature on for its first 14 days, with no card and no key. After that the free tier keeps working indefinitely, and a licence keeps the licensed features on. If a licence lapses, the licensed features stop and nothing is deleted.</p>
 <div class="mt-8 grid gap-6 md:grid-cols-2" data-tabs data-tabs-label="Free tier or licensed">
 <div class="rounded-lg border border-ink-200 bg-white p-6" data-tab="Free tier" id="tiers-free"><p class="text-xs font-semibold uppercase tracking-wider text-ink-500">Free tier (after the 14 days)</p><ul class="vp-tier-list mt-3">{free_li}</ul></div>
 <div class="rounded-lg border border-accent-300 bg-accent-50 p-6" data-tab="First 14 days + licensed" id="tiers-licensed"><p class="text-xs font-semibold uppercase tracking-wider text-accent-700">First 14 days + licensed</p><ul class="vp-tier-list mt-3">{paid_li}</ul><a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-primary mt-5">Start 14-day free trial →</a></div>
@@ -2688,9 +2892,9 @@ compileUiExtensions({{
 <p class="text-xs uppercase tracking-wider text-accent-600 font-semibold">Annual · 14-day free trial</p>
 <p class="vp-price-num mt-2"><span class="vp-trial-num">14</span><small>days free</small></p>
 <p class="hu-plan-then">Then <strong class="hu-plan-price"><span data-annual-price data-plan-price>{html.escape(annual['GBP'])}</span>/year</strong></p>
-<p class="mt-1 text-sm text-ink-700">Card required at checkout; cancel any time before day 15 and pay nothing. Annual billing gets two months free.</p>
+<p class="mt-1 text-sm text-ink-700">{TRIAL_TEXT} Annual billing gets two months free.</p>
 <a href="{BUY_BASE}/{pkg_short}?plan=annual" class="btn btn-secondary w-full mt-5" style="text-align:center">Start 14-day free trial<span class="sr-only">, annual plan</span> →</a>
-<p class="vp-tiny-note">Card required. One trial per customer.</p>
+<p class="vp-tiny-note">One trial per customer.</p>
 </div>''' if annual else ''
 
     trail = [('Vendure plugins', '/vendure-plugins/'), (p['title'], None)]
@@ -2736,19 +2940,19 @@ compileUiExtensions({{
 <p class="text-xs uppercase tracking-wider text-accent-600 font-semibold">Monthly · 14-day free trial</p>
 <p class="vp-price-num mt-2"><span class="vp-trial-num">14</span><small>days free</small></p>
 <p class="hu-plan-then">Then <strong class="hu-plan-price"><span data-monthly-price data-plan-price>{price_mo_gbp}</span>/month</strong></p>
-<p class="mt-1 text-sm text-ink-700">Card required at checkout; cancel any time before day 15 and pay nothing.</p>
+<p class="mt-1 text-sm text-ink-700">{TRIAL_TEXT}</p>
 <a href="{BUY_BASE}/{pkg_short}?plan=monthly" class="btn btn-secondary w-full mt-5" style="text-align:center">Start 14-day free trial<span class="sr-only">, monthly plan</span> →</a>
-<p class="vp-tiny-note">Card required. One trial per customer.</p>
+<p class="vp-tiny-note">One trial per customer.</p>
 </div>{annual_plan}
 <div class="hu-plan" data-plan="lifetime" data-plan-unit="one-off">
 <p class="text-xs uppercase tracking-wider text-accent-600 font-semibold">Lifetime · Best value</p>
 <p class="vp-price-num mt-2" data-lifetime-price data-plan-price>{price_lt_gbp}</p>
-<p class="mt-2 text-sm text-ink-600">One-off. Never expires. Free updates for the lifetime of the plugin.</p>
+<p class="mt-2 text-sm text-ink-600">One payment for one installation (one Vendure deployment). Never expires; free updates for the lifetime of the plugin.</p>
 <a href="{BUY_BASE}/{pkg_short}?plan=lifetime" class="btn btn-primary w-full mt-5" style="text-align:center">Buy lifetime →</a>
 </div>
 </div>
 <p data-approx-note style="display:none" class="mt-3 text-xs text-ink-500">Prices marked ≈ are estimates — you'll be billed in £ GBP and your bank converts at its own rate.</p>
-<p class="mt-4 text-xs text-ink-500 leading-relaxed">Payments processed by Stripe. VAT applied where applicable. 30-day refund on lifetime licences if it doesn't fit your stack. By proceeding you accept our <a href="/legal/terms/" class="underline">Terms</a> and <a href="/legal/privacy/" class="underline">Privacy Policy</a>.</p>
+<p class="mt-4 text-xs text-ink-500 leading-relaxed">Payments processed by Stripe. VAT applied where applicable. 30-day refund on lifetime licences if it doesn't fit your stack. One licence covers one installation: one Vendure deployment (one hostname). By proceeding you accept our <a href="/legal/terms/" class="underline">Terms</a> and <a href="/legal/privacy/" class="underline">Privacy Policy</a>.</p>
 </aside>
 </div>
 </div>

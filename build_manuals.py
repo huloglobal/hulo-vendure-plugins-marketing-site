@@ -133,8 +133,9 @@ EMAIL_TRACKING_MANUAL = {
 <li><strong>Every event, raw:</strong> one <code>email_event</code> row per send, delivery, deferral, bounce, complaint, unsubscribe, open and click, never deduplicated, with its source, time, hashed IP, approximate location, email client and classification.</li>
 <li><strong>Classification:</strong> each open and click is <code>human_likely</code>, <code>machine_likely</code> or <code>unknown</code>, with reason codes such as <code>gmail-proxy</code>, <code>ampp</code> (Apple Mail Privacy Protection), <code>safelinks</code> and <code>bot-ua</code>. It is advisory: nothing is blocked.</li>
 <li><strong>Delivery from your provider:</strong> Postmark, SendGrid, Mailgun and Amazon SES webhooks, each verified with the provider's own signature scheme.</li>
-<li><strong>Bounces and complaints:</strong> a status update, and the address joins the suppression list.</li>
+<li><strong>Bounces and complaints:</strong> a status update, and for hard bounces and complaints the address joins the suppression list, which every later email is checked against at send.</li>
 </ul>
+<p>The log, opens and clicks, the suppression list, bounces and complaints, each order's email list and the customer Emails tab are free; per-template rates, CSV export, the order activity timeline with the PDF evidence report, and provider delivery, deferral, unsubscribe and engagement events need a licence (see <a href="#licensing">Free and licensed</a>).</p>
 <p>Release notes for every version are on the <a href="/vendure-plugins/email-tracking/changelog/">changelog page</a>.</p>
 '''),
         ('install', 'Install', '''
@@ -166,6 +167,7 @@ export const config: VendureConfig = {
 yarn migration:generate AddEmailTrackingTables
 yarn migration:run</div>
 <p>Restart Vendure and compile the admin UI. The <strong>Email Log</strong> page appears under Customers, every order page gets an <strong>Email activity</strong> panel, and every customer page an <strong>Emails</strong> tab.</p>
+<div class="callout"><strong>Upgrading to 0.17:</strong> one new column, <code>email_log.machineCount</code> (int, default 0). With <code>synchronize: false</code>, generate a migration or add it with the DDL in the package README ("Upgrading to 0.17.0") before upgrading.</div>
 <div class="callout"><strong>Upgrading from 0.15.x:</strong> 0.16 adds one table, <code>email_event</code>. With <code>synchronize: false</code>, generate a migration or run the DDL in the package README ("Upgrading to 0.16.0"). Until the table exists the plugin keeps working as 0.15.4 and logs a warning.</div>
 '''),
         ('admin-ui', 'Admin UI tour', '''
@@ -242,7 +244,7 @@ POST /email-track/orders/:orderId/evidence-link     <span class="c">// a five-mi
 '''),
         ('suppression', 'Suppression list', '''
 <p>The plugin maintains an <code>email_suppression</code> table: recipients who should never be sent to. It is filled automatically by hard bounces and complaints from the bounce webhook and the provider webhooks, and you can add entries manually.</p>
-<p>When a send is attempted for a suppressed recipient, the row is written to <code>email_log</code> with <code>status='suppressed'</code>, and no SMTP call is made.</p>
+<p>The suppression list is free and enforced at send for every email, whether it goes through <code>TrackingEmailSender</code> (the EmailPlugin) or <code>EmailTrackingService</code>: when a send is attempted for a suppressed recipient, the row is written to <code>email_log</code> with <code>status='suppressed'</code>, and no SMTP call is made. A password reset is still sent, so a suppressed customer can always get back into their account.</p>
 <p>The suppression endpoints are admin endpoints: call them with an admin session (cookie or <code>Authorization: Bearer</code> token). Listing needs <code>ReadCustomer</code>; adding and lifting need <code>UpdateCustomer</code>.</p>
 <h3>Adding entries manually</h3>
 <div class="doc-code">curl -X POST https://shop.example.com/email-track/suppression \\
@@ -255,15 +257,15 @@ POST /email-track/orders/:orderId/evidence-link     <span class="c">// a five-mi
 '''),
         ('webhook', 'Bounce webhook', '''
 <p>If your own postmaster integration or DSN parser reports bounces, POST them to <code>/email-track/bounce</code>, signed with your <code>bounceWebhookSecret</code>:</p>
-<div class="doc-code">BODY='{"messageId":"&lt;abc@mail.example.com&gt;","status":"bounced","reason":"550 5.1.1 The email account does not exist"}'
+<div class="doc-code">BODY='{"messageId":"&lt;abc@mail.example.com&gt;","status":"bounced","bounceType":"hard","reason":"550 5.1.1 The email account does not exist"}'
 SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$HULO_BOUNCE_WEBHOOK_SECRET" | cut -d' ' -f2)
 curl -X POST https://shop.example.com/email-track/bounce \\
   -H "Content-Type: application/json" -H "X-Signature: $SIG" -d "$BODY"</div>
-<p><code>status</code> is <code>bounced</code> or <code>complained</code>; add <code>"bounceType":"soft"</code> for a temporary failure, which is recorded but never suppresses. The matching <code>email_log</code> row is updated and, for hard bounces and complaints, the recipient joins the suppression list.</p>
+<p><code>status</code> is <code>bounced</code> or <code>complained</code>. A bounce must carry <code>"bounceType":"hard"</code> or <code>"bounceType":"soft"</code>; anything else is refused with 400. A soft bounce is recorded but never suppresses. The matching <code>email_log</code> row is updated and, for hard bounces and complaints, the recipient joins the suppression list, recipient by recipient.</p>
 <div class="callout">The signature is the hex HMAC-SHA256 of the exact request body (a <code>sha256=</code> prefix is accepted too). The secret is <code>bounceWebhookSecret</code>, or a <code>signingSecret</code> you configured; with neither, the endpoint answers 503. On a private network only, <code>allowUnauthenticatedBounceWebhook: true</code> accepts unsigned requests.</div>
 '''),
         ('analytics', 'Per-template analytics', '''
-<p>For an aggregated view of how each email <em>type</em> performs, hit:</p>
+<p>With a licence or during the evaluation. For an aggregated view of how each email <em>type</em> performs, hit:</p>
 <div class="doc-code">GET /email-track/log/stats/by-template?fromDays=30</div>
 <p>Returns:</p>
 <div class="doc-code">{
@@ -286,7 +288,7 @@ curl -X POST https://shop.example.com/email-track/bounce \\
 }</div>
 '''),
         ('csv-export', 'CSV export', '''
-<p>The list endpoint has a CSV mirror. Same filters, same shape:</p>
+<p>With a licence or during the evaluation, the list endpoint has a CSV mirror. Same filters, same shape:</p>
 <div class="doc-code">GET /email-track/log/export.csv?status=sent&amp;from=2026-05-01</div>
 <p>Up to 50 000 rows per call. Cells that a spreadsheet would run as a formula are quoted.</p>
 '''),
@@ -298,16 +300,16 @@ curl -X POST https://shop.example.com/email-track/bounce \\
 <tr><td>GET</td><td><code>/email-track/click/:token?u=&lt;url&gt;&amp;s=&lt;sig&gt;</code></td><td>Public click redirector: checks the signed destination, records the click, then 302s</td></tr>
 <tr><td>POST</td><td><code>/email-track/webhook/:provider</code></td><td>Provider delivery events (postmark, sendgrid, mailgun, ses), verified by the provider's signature</td></tr>
 <tr><td>POST</td><td><code>/email-track/bounce</code></td><td>Bounce / complaint webhook, signed with X-Signature</td></tr>
-<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity</code></td><td>Admin: the order's activity timeline</td></tr>
-<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity.csv</code></td><td>Admin: redacted CSV of the timeline</td></tr>
-<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity.json</code></td><td>Admin: redacted JSON; <code>?full=1</code> needs ExportEmailEvidence</td></tr>
-<tr><td>POST</td><td><code>/email-track/orders/:orderId/evidence-link</code></td><td>Admin: a five-minute signed link to the PDF evidence report</td></tr>
+<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity</code></td><td>Admin: the order's activity timeline (licensed)</td></tr>
+<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity.csv</code></td><td>Admin: redacted CSV of the timeline (licensed)</td></tr>
+<tr><td>GET</td><td><code>/email-track/orders/:orderId/activity.json</code></td><td>Admin: redacted JSON; <code>?full=1</code> needs ExportEmailEvidence (licensed)</td></tr>
+<tr><td>POST</td><td><code>/email-track/orders/:orderId/evidence-link</code></td><td>Admin: a five-minute signed link to the PDF evidence report (licensed)</td></tr>
 <tr><td>GET</td><td><code>/email-track/orders/:orderId/evidence.pdf</code></td><td>The PDF evidence report, through its signed link</td></tr>
 <tr><td>GET</td><td><code>/email-track/log</code></td><td>Admin: paginated log with filters</td></tr>
 <tr><td>GET</td><td><code>/email-track/log/summary</code></td><td>Admin: status totals</td></tr>
 <tr><td>GET</td><td><code>/email-track/log/:id</code></td><td>Admin: full detail, incl. opens and clicks</td></tr>
-<tr><td>GET</td><td><code>/email-track/log/stats/by-template</code></td><td>Admin: per-template aggregates</td></tr>
-<tr><td>GET</td><td><code>/email-track/log/export.csv</code></td><td>Admin: CSV export</td></tr>
+<tr><td>GET</td><td><code>/email-track/log/stats/by-template</code></td><td>Admin: per-template aggregates (licensed)</td></tr>
+<tr><td>GET</td><td><code>/email-track/log/export.csv</code></td><td>Admin: CSV export (licensed)</td></tr>
 <tr><td>GET</td><td><code>/email-track/suppression</code></td><td>Admin: list suppressions</td></tr>
 <tr><td>POST</td><td><code>/email-track/suppression</code></td><td>Admin: add a suppression</td></tr>
 <tr><td>DELETE</td><td><code>/email-track/suppression/:recipient</code></td><td>Admin: lift a suppression</td></tr>
@@ -336,11 +338,11 @@ GEO_BLOCK_MANUAL = {
     'title_short': 'Geo-block',
     'sections': [
         ('overview', 'Overview', '''
-<p><strong>Geo-block</strong> gives you per-channel control over who can reach your Vendure storefront. Pick from 37 region presets, add countries manually, soft-block markets you don't ship to (so they can still browse), allow specific IPs to bypass all rules, and audit every block decision.</p>
+<p><strong>Geo-block</strong> gives you per-channel control over who can reach your Vendure storefront. Add countries or pick a region preset, allow specific IPv4 and IPv6 addresses and ranges to bypass all rules, set business hours and maintenance windows, and, if you switch it on, have Vendure itself refuse purchases from blocked visitors. The free tier enforces all of that with five presets; a licence adds all 37 presets, subdivisions, soft-blocking of markets you don't ship to (so they can still browse), the audit log and stats, and the simulator (see <a href="#licensing">Free and licensed</a>).</p>
 <p>Two storefront integration modes:</p>
 <ul>
 <li><strong>Site-config polling</strong> — Storefront calls <code>/geo-block/site-config</code> once on boot, caches the resolved rules, and decides client-side. Cheapest on the server.</li>
-<li><strong>Per-request check</strong> — Storefront calls <code>/geo-block/check</code> on entry, gets a fresh decision per visitor (also logs to the audit table). Use when you want stats.</li>
+<li><strong>Per-request check</strong> — Storefront calls <code>/geo-block/check</code> on entry, gets a fresh decision per visitor (with a licence, also logged to the audit table). Use when you want stats.</li>
 </ul>
 '''),
         ('install', 'Install', '''
@@ -370,9 +372,10 @@ export const config: VendureConfig = {
 <span class="c"># 3. Migration</span>
 yarn migration:generate AddGeoBlockTables
 yarn migration:run</div>
+<div class="callout"><strong>Upgrading to 0.15:</strong> 0.15 adds two Channel custom fields (<code>geoBlockMaintenance</code>, <code>geoBlockEnforcePurchases</code>). With <code>synchronize: true</code> nothing is needed; otherwise generate a migration as usual, or add the <code>GeoBlockChannelFields1763020800000</code> migration the package ships. Until the columns exist, channel queries fail. Purchase enforcement stays off on every existing channel.</div>
 '''),
         ('admin-ui', 'Admin UI tour', '''
-<p>The Site Access page is mounted at <code>/admin/extensions/geo-block</code>. Five tabs:</p>
+<p>The Site Access page is mounted at <code>/admin/extensions/geo-block</code> (Settings → Geo Block). Tabs: Rules (including the purchase-enforcement switch), Block page, IP allowlist, Business hours, Maintenance, Simulate, Stats and Settings.</p>
 <h3>Rules</h3>
 <div class="screenshot">''' + svg_panel('Site access — Rules tab', [
     '== Channel: Elite [GEO-BLOCK ON]  [Full block]',
@@ -386,16 +389,18 @@ yarn migration:run</div>
     '== UK subdivisions',
     '::England ✓ | Wales ✓ | Scotland | Northern Ireland',
 ], height=400) + '''
-<div class="screenshot-caption">Rules tab — pick mode, strategy, regions, sub-regions. Live preview shows resolved country list at the bottom.</div>
+<div class="screenshot-caption">Rules tab — pick mode, strategy, regions, sub-regions. Live preview shows resolved country list at the bottom. Soft block, the 32 extra presets and sub-regions need a licence.</div>
 </div>
 
 <h3>Block page</h3>
 <p>Customise the block page per channel: a free-text message, optional redirect URL (when set, blocked visitors are 302'd there instead), optional logo URL.</p>
 
 <h3>IP allowlist</h3>
-<p>Add specific IPs or IPv4 CIDR ranges (<code>203.0.113.0/24</code>) that bypass every rule. Use for your office, oncall engineers, payment processor probes, monitoring.</p>
+<p>Add specific IPs or IPv4 and IPv6 CIDR ranges (<code>203.0.113.0/24</code>, <code>2001:db8::/48</code>) that bypass every rule. Use for your office, oncall engineers, payment processor probes, monitoring. <strong>Add my IP</strong> adds the address the server sees for you.</p>
+<h3>Business hours and Maintenance</h3>
+<p>Opening hours per channel (days, opening and closing time, time zone; overnight ranges work) and what happens outside them, and per-channel maintenance windows (at most 31 days, with extra IPs that get in and a message). The IP allowlist gets in; allowlisted crawlers bypass both for page views, so search engines keep the site indexed, but never for purchases.</p>
 
-<h3>Simulate</h3>
+<h3>Simulate (licensed)</h3>
 <div class="screenshot">''' + svg_panel('Site access — Simulate tab', [
     '== Test a hypothetical visitor',
     '// Country code: US',
@@ -408,11 +413,11 @@ yarn migration:run</div>
 <div class="screenshot-caption">Simulate tab — try any country / IP combination without saving anything to production.</div>
 </div>
 
-<h3>Stats</h3>
+<h3>Stats (licensed)</h3>
 <p>Last N days of block decisions: total blocks, soft blocks, unique blocked IPs, top blocked countries, daily series, breakdown by reason.</p>
 '''),
         ('presets', 'Region presets', '''
-<p>The plugin ships 37 hand-curated presets, grouped in the picker by kind:</p>
+<p>The plugin ships 37 hand-curated presets, grouped in the picker by kind. The free tier can add five of them (WORLDWIDE, UK_ONLY, EU, NORTH_AMERICA and OCEANIA); a licence adds the rest, and presets saved while licensed are kept.</p>
 <table>
 <thead><tr><th>Group</th><th>Presets</th></tr></thead>
 <tbody>
@@ -449,19 +454,23 @@ if (!verdict.allowed) {
   return res.render(<span class="s">'blocked'</span>, { message: verdict.message, mode: verdict.mode });
 }</div>
 
-<div class="callout">In <strong>soft</strong> mode the storefront should render the full site but include a banner explaining you don't ship to the visitor's country, and hide the checkout button. The plugin returns <code>mode: 'soft'</code> on the verdict to make this decision easy.</div>
+<div class="callout">In <strong>soft</strong> mode (licensed) the storefront should render the full site with a banner explaining you don't ship to the visitor's country. A soft block is a banner only: it does not hide or refuse the checkout; use a full block with purchase enforcement for that. The plugin returns <code>mode: 'soft'</code> on the verdict; on the free tier a soft block acts as a full block.</div>
+<h3>Purchase enforcement (opt-in)</h3>
+<p>The checks above only advise the storefront. Switch on <strong>Refuse purchases from blocked visitors</strong> (Rules tab, or the channel custom field <code>geoBlockEnforcePurchases</code>) and Vendure itself refuses <code>addItemToOrder</code>, quantity increases and the move to <code>ArrangingPayment</code> for a visitor the rules fully block. It is off by default and fails open: an unknown country, an Admin API call or any lookup error means "allow".</p>
+<h3>Status codes</h3>
+<p>The block page (<code>/geo-block/blocked</code>) answers 403 for a country refusal and 503 with <code>Retry-After</code> for business hours and maintenance, with <code>X-Robots-Tag: noindex</code>. <code>/geo-block/check</code> answers 200 with JSON; add <code>?status=1</code> to get the same 403 / 503 for a full block.</p>
 '''),
         ('endpoints', 'HTTP endpoints', '''
 <table>
 <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
 <tbody>
 <tr><td>GET</td><td><code>/geo-block/site-config</code></td><td>Public: resolved channel rules (cached client-side)</td></tr>
-<tr><td>GET</td><td><code>/geo-block/check</code></td><td>Public: per-request decision (logs to audit table)</td></tr>
+<tr><td>GET</td><td><code>/geo-block/check</code></td><td>Public: per-request decision (logged to the audit table with a licence)</td></tr>
 <tr><td>GET</td><td><code>/geo-block/presets</code></td><td>Public: 37-preset catalogue</td></tr>
 <tr><td>GET</td><td><code>/geo-block/admin/channels</code></td><td>Admin: list channels + rules</td></tr>
 <tr><td>POST</td><td><code>/geo-block/admin/save</code></td><td>Admin: save a channel's rules</td></tr>
-<tr><td>GET</td><td><code>/geo-block/admin/stats</code></td><td>Admin: block totals + top countries</td></tr>
-<tr><td>POST</td><td><code>/geo-block/admin/simulate</code></td><td>Admin: dry-run a visitor</td></tr>
+<tr><td>GET</td><td><code>/geo-block/admin/stats</code></td><td>Admin: block totals + top countries (licensed)</td></tr>
+<tr><td>POST</td><td><code>/geo-block/admin/simulate</code></td><td>Admin: dry-run a visitor (licensed)</td></tr>
 <tr><td>POST</td><td><code>/geo-block/admin/gc</code></td><td>Admin: prune old audit rows</td></tr>
 </tbody>
 </table>
@@ -470,9 +479,9 @@ if (!verdict.allowed) {
 <h3>Every visitor is blocked but my rules look right</h3>
 <p>Check the <em>Rules</em> tab's "Resolved allow-list" preview at the bottom — it shows the exact list that would be applied on save. If the list says <strong>nothing is allowed</strong>, you've probably picked a preset and then blocked every country in it.</p>
 <h3>Cloudflare IP appears as the visitor IP</h3>
-<p>The plugin reads the upstream proxy headers in this order: <code>cf-connecting-ip</code> → <code>true-client-ip</code> → <code>x-real-ip</code> → <code>x-forwarded-for[0]</code> → <code>req.ip</code>. Make sure Cloudflare's <code>cf-connecting-ip</code> is reaching your Vendure server (it's a default Cloudflare header).</p>
+<p>The plugin uses Express's <code>req.ip</code>, so set <code>trustProxy</code> on the Vendure host, and list only headers your edge sets (and strips from clients) in <code>trustedIpHeaders</code>, for example <code>['cf-connecting-ip']</code> behind Cloudflare. Country headers (<code>CF-IPCountry</code>, Akamai, Fastly) are believed only from a trusted proxy; without one, point <code>maxmindDbPath</code> at a MaxMind-format file on the server. The Settings tab shows where your own country came from.</p>
 <h3>Stats panel is empty</h3>
-<p>Stats are populated by the per-request <code>/check</code> endpoint, not by <code>/site-config</code>. If your storefront only polls <code>site-config</code>, no audit rows are written. Either switch to <code>/check</code> or call <code>/check</code> as well in your storefront middleware.</p>
+<p>Stats need a licence, and are populated by the per-request <code>/check</code> endpoint, not by <code>/site-config</code>. If your storefront only polls <code>site-config</code>, no audit rows are written. Either switch to <code>/check</code> or call <code>/check</code> as well in your storefront middleware.</p>
 '''),
     ],
 }
@@ -487,12 +496,12 @@ VISITOR_ANALYTICS_MANUAL = {
     'title_short': 'Visitor Analytics',
     'sections': [
         ('overview', 'Overview', '''
-<p><strong>Visitor Analytics</strong> is a self-hosted, privacy-aware visitor journey tracker. Page views, time-on-page, exit pages, configurable funnel, conversion goals, UTM attribution, bot detection. All data lives in your own database; nothing is sent to a third party.</p>
+<p><strong>Visitor Analytics</strong> is a self-hosted, privacy-aware visitor journey tracker. Page views, time-on-page, exit pages, configurable funnel, conversion goals, UTM attribution, bot detection. All data lives in your own database; nothing is sent to a third party. The free tier records every event with no daily cap and keeps the dashboards, reports, journeys and privacy tools; goals, the live view, CSV export, abandoned-cart detection and recovery e-mails, and product recommendations need a licence (see <a href="#licensing">Free and licensed</a>).</p>
 <p>Survives login — a visitor's pre-signin events and post-signin events share the same <code>visitorId</code>, so funnel analysis works across the auth boundary.</p>
 <p><strong>Since 0.8.0 the plugin also ships:</strong></p>
 <ul>
-<li><strong>Cart abandonment</strong> — detection, signed recovery links, Slack notification for high-value drops, admin dashboard.</li>
-<li><strong>Product recommendations</strong> — <code>also-viewed</code>, <code>personal</code>, and <code>trending</code> endpoints driven by observed co-viewing behaviour.</li>
+<li><strong>Cart abandonment</strong> (licensed) — detection, signed recovery links, Slack notification for high-value drops, admin dashboard.</li>
+<li><strong>Product recommendations</strong> (licensed) — <code>also-viewed</code>, <code>personal</code>, and <code>trending</code> endpoints driven by observed co-viewing behaviour.</li>
 <li><strong>Site search analytics</strong> — top queries, zero-result queries (direct catalogue-gap intel), search-to-cart conversion.</li>
 <li><strong>Journey drawer buffs</strong> — rage-click + dead-click hot-spot lists, per-session heuristic <code>intent</code> label.</li>
 <li><strong>Drop-in storefront helper</strong> — one script tag from <code>/ees/hulo.js</code> and every event helper is on <code>window.hulo</code>.</li>
@@ -585,7 +594,7 @@ yarn migration:run</div>
 <p>The token is signed, time-bounded (default 72h), and non-reusable. If it's expired or already consumed, the endpoint returns <code>{ error: 'expired-or-invalid' }</code>.</p>
 '''),
         ('cart-abandonment', 'Cart abandonment', '''
-<p>Detects sessions that put items in the cart but never checked out. Turns them into <code>AbandonedCart</code> rows you can send a recovery email against.</p>
+<p>With a licence or during the evaluation, the scanner detects sessions that put items in the cart but never checked out and turns them into <code>AbandonedCart</code> rows you can send a recovery email against. The Abandoned Carts page itself is in the plugin on every tier.</p>
 <h3>Enable it</h3>
 <div class="doc-code"><span class="k">VisitorAnalyticsPlugin</span>.init({
   <span class="c">// ...</span>
@@ -617,7 +626,7 @@ yarn migration:run</div>
 </ol>
 '''),
         ('recommendations', 'Product recommendations', '''
-<p>Recommendations derived from observed co-viewing behaviour. The scanner walks recent <code>product_view</code> events per session, extracts every ordered pair, and increments a counter per <code>(productIdA, productIdB, channelId)</code> triple.</p>
+<p>Recommendations derived from observed co-viewing behaviour (the aggregation runs with a licence or during the evaluation). The scanner walks recent <code>product_view</code> events per session, extracts every ordered pair, and increments a counter per <code>(productIdA, productIdB, channelId)</code> triple.</p>
 <h3>Endpoints</h3>
 <table>
 <thead><tr><th>Endpoint</th><th>Use</th></tr></thead>
@@ -676,7 +685,7 @@ hulo.search(query, results.totalItems);</div>
 </table>
 '''),
         ('goals', 'Conversion goals', '''
-<p>A conversion goal is a URL glob that, when matched by a pageview, counts that visitor as having completed the goal. Patterns support:</p>
+<p>Creating goals, form and payment goals, goal suggestions and completions per goal need a licence or the evaluation; page goals you already have keep counting on the free tier. A page goal is a URL glob that, when matched by a pageview, counts that visitor as having completed the goal. Patterns support:</p>
 <ul>
 <li><code>*</code> — match zero or more chars within a path segment</li>
 <li><code>**</code> — match zero or more segments (including <code>/</code>)</li>
@@ -740,7 +749,7 @@ hulo.search(query, results.totalItems);</div>
 <li><strong>Exit pages</strong> — where visitors leave</li>
 <li><strong>Top events</strong> — custom event distribution</li>
 <li><strong>Top pages</strong> — most-visited URLs</li>
-<li><strong>Live</strong> — SSE-streamed real-time count</li>
+<li><strong>Live</strong> (licensed) — SSE-streamed real-time count</li>
 <li><strong>Journey</strong> — full per-visitor timeline (drill from any of the views above)</li>
 </ul>
 '''),
@@ -766,10 +775,10 @@ hulo.search(query, results.totalItems);</div>
 <tr><td>GET</td><td><code>/ees/visitors/top-pages</code></td><td>Most-visited URLs</td></tr>
 <tr><td>GET</td><td><code>/ees/visitors/funnel</code></td><td>Configurable funnel with drop-offs</td></tr>
 <tr><td>GET</td><td><code>/ees/visitors/exit-pages</code></td><td>Top exit pages</td></tr>
-<tr><td>GET</td><td><code>/ees/visitors/live</code></td><td>SSE live-now stream</td></tr>
+<tr><td>GET</td><td><code>/ees/visitors/live</code></td><td>SSE live-now stream (licensed)</td></tr>
 <tr><td>GET</td><td><code>/ees/visitors/journey/:visitorId</code></td><td>Per-visitor timeline</td></tr>
-<tr><td>GET</td><td><code>/ees/visitors/export.csv</code></td><td>CSV export (max 90 days)</td></tr>
-<tr><td>POST</td><td><code>/ees/goals</code></td><td>Create a conversion goal</td></tr>
+<tr><td>GET</td><td><code>/ees/visitors/export.csv</code></td><td>CSV export (max 90 days; licensed)</td></tr>
+<tr><td>POST</td><td><code>/ees/goals</code></td><td>Create a conversion goal (licensed)</td></tr>
 <tr><td>GET</td><td><code>/ees/goals/stats</code></td><td>Per-goal completion stats</td></tr>
 <tr><td>GET</td><td><code>/ees/abandoned-carts</code></td><td><strong>0.8.0</strong> — paginated list with filters</td></tr>
 <tr><td>GET</td><td><code>/ees/abandoned-carts/summary</code></td><td><strong>0.8.0</strong> — KPIs + recovery rate</td></tr>
@@ -808,10 +817,10 @@ FRAUD_PREVENTION_MANUAL = {
 <ul>
 <li><strong>Velocity</strong> — orders per IP per hour/day, orders per email identity per day, daily spend per identity. Emails are canonicalised first: <code>x+1@gmail.com</code>, <code>x+2@gmail.com</code> and <code>x.y@gmail.com</code> count as one identity.</li>
 <li><strong>Lists</strong> — your manual allow/block entries plus daily-synced threat feeds (FireHOL Level&nbsp;1, Spamhaus DROP, Tor exit nodes, ~3,500 disposable-email domains). CIDR ranges are matched properly.</li>
-<li><strong>Payment behaviour</strong> — failed/declined payment attempts from the same IP within the hour.</li>
+<li><strong>Payment behaviour</strong> — failed/declined payment attempts from the same IP within the hour, and the card checks from the issuer: AVS postcode/address, a failed CVC check, and card country different from billing.</li>
 <li><strong>Order shape</strong> — value ceilings, first-order-high-value, high-risk countries (your list).</li>
 </ul>
-<p>Per-channel thresholds decide the outcome: below the review threshold the order flows normally; at or above it the order is <em>held for review</em>; at the block threshold the customer is additionally told the order is being verified. Every assessment is written to a filterable audit log.</p>
+<p>Per-channel thresholds decide the outcome: below the review threshold the order flows normally; in hold mode (free) a block-level order is refused before the charge; in enforce mode (licensed) an order at or above the review threshold is <em>held for review</em>, and at the block threshold the customer is additionally told the order is being verified. Every assessment is written to a filterable audit log. Signal weights, thresholds, lists, the simulator and lookup are free (see <a href="#licensing">Free and licensed</a>).</p>
 '''),
         ('install', 'Install', '''
 <p>One package, one line of config. Tables are created automatically on boot.</p>
@@ -833,29 +842,33 @@ export const config: VendureConfig = {
 <span class="c"># 3. Admin UI — add to your compileUiExtensions extensions array:</span>
 FraudPreventionPlugin.uiExtensions</div>
 <p>Orders need an IP for the IP-based signals — store it in the <code>Order.customFields.ip</code> custom field at checkout.</p>
+<p><strong>IP intelligence</strong> (VPN, proxy and hosting detection, IP country vs billing country) is opt-in: switch it on under Settings → IP intelligence and paste your own <a href="https://members.ip-api.com/">ip-api.com Pro</a> key. Lookups go over HTTPS to <code>pro.ip-api.com</code>; private and reserved addresses are never sent, and answers are cached for 30 days.</p>
 '''),
         ('modes', 'Modes & thresholds', '''
-<p>Each channel runs in one of three modes:</p>
+<p>Each channel runs in one of four modes:</p>
 <ul>
-<li><strong>Off</strong> — no scoring, no logging.</li>
-<li><strong>Monitor</strong> — every order scored and logged; risky orders flagged but never held. The default, and the recommended starting point: watch the Activity tab for a week, then tune.</li>
-<li><strong>Enforce</strong> — orders scoring &ge; the review threshold open a case in the Review queue and licence keys / downloads wait for approval. Orders &ge; the block threshold also email the customer that the order is under verification.</li>
+<li><strong>Off</strong> — orders are still scored and logged as <code>shadow</code>, so you can see what protection would have caught; nothing else happens.</li>
+<li><strong>Monitor</strong> — every order scored and logged; risky orders flagged but never held. The recommended starting point: watch the Activity tab for a week, then tune.</li>
+<li><strong>Hold</strong> (free) — every shop order is scored when it moves to <code>ArrangingPayment</code>, before any payment is taken. A block-level score, or an address in its failed-payment cooldown, is refused with a neutral message and logged as <code>refused</code>. Admin draft orders are never refused, and the check fails open on any internal error.</li>
+<li><strong>Enforce</strong> (licensed) — everything Hold does, plus: orders scoring &ge; the review threshold open a case in the Review queue and licence keys / downloads wait for approval. Orders &ge; the block threshold also email the customer that the order is under verification. Without a licence, enforce works as hold.</li>
 </ul>
 <p>Defaults: review at 40, block at 70. The status sentence at the top of the admin page always describes, in plain English, exactly what the current configuration will do.</p>
 '''),
         ('review-queue', 'Review queue', '''
-<p>Held orders land in the Review queue with their score, the exact signals that fired (with per-signal point contributions), customer identity and age.</p>
+<p>With a licence or during the evaluation, held orders land in the Review queue with their score, the exact signals that fired (with per-signal point contributions), customer identity and age.</p>
 <ul>
-<li><strong>Approve</strong> — releases fulfilment; the customer gets your approved-order email.</li>
+<li><strong>Approve</strong> — releases fulfilment and captures any authorised payment; the customer gets your approved-order email.</li>
 <li><strong>Reject</strong> — cancels the order and notifies the customer with your rejection email (refund timeline + a human-appeal path in the default copy). Add notes; everything is audited.</li>
 </ul>
 <p><strong>Customer messages are templates, per channel</strong>: held / approved / rejected each have an editable subject + body with <code>{{orderCode}}</code>, <code>{{firstName}}</code>, <code>{{supportEmail}}</code> and <code>{{reviewHours}}</code> variables, live preview and reset-to-default (Settings tab). A per-channel policy decides when held customers are told: never, block-level only (default), or always.</p>
-<p><strong>Ops alerts</strong> fan out to every channel you configure — Slack, Discord, Microsoft Teams, Telegram, and a generic JSON webhook signed with HMAC-SHA256 (<code>X-Hulo-Signature</code>) for custom integrations. Held, approved, rejected and auto-released cases all ping.</p>
+<p><strong>Ops alerts</strong> (licensed, monitor-mode alerts included) fan out to every channel you configure — Slack, Discord, Microsoft Teams, Telegram, and a generic JSON webhook signed with HMAC-SHA256 (<code>X-Hulo-Signature</code>) for custom integrations. Held, approved, rejected and auto-released cases all ping.</p>
 <p><strong>Fulfilment hold integration:</strong> if your fulfilment is custom, gate it with one call:</p>
 <div class="doc-code">import { <span class="k">FraudPreventionService</span> } from <span class="s">'@huloglobal/vendure-plugin-fraud-prevention'</span>;
 
-const held = new Set(await this.fraudService.<span class="k">pendingOrderIds</span>());
-if (held.has(orderId)) continue; <span class="c">// wait for a human</span></div>
+const held = new Set(await this.fraudService.<span class="k">heldOrderIds</span>()); <span class="c">// open + rejected cases</span>
+if (held.has(orderId)) continue; <span class="c">// wait for a human</span>
+if (!(await this.fraudService.<span class="k">isAssessed</span>(orderId))) continue; <span class="c">// not scored yet, try again shortly</span></div>
+<p>For fulfilment outside Vendure, the HTTP fulfilment gate (licensed) answers <code>GET /fraud-prevention/gate/:orderId</code> with <code>releasable</code>, and <code>GET /fraud-prevention/held</code> with the order ids never to fulfil.</p>
 '''),
         ('lists', 'Lists & threat feeds', '''
 <p>Two manual lists ride on top of the feeds:</p>
@@ -892,11 +905,7 @@ if (held.has(orderId)) continue; <span class="c">// wait for a human</span></div
 <div class="callout"><strong>Roll out safely:</strong> start any new feed in <strong>monitor</strong> mode and watch the Activity tab for a few days before enforcing. Broad IP feeds occasionally catch shared carrier-grade NAT or corporate-proxy addresses that real customers sit behind, so it pays to see the hits before they can hold an order.</div>
 '''),
         ('simulate', 'Simulator', '''
-<p>The Simulate tab runs the full assessment for a hypothetical order — email, IP, value, country, first-time-customer flag — against <em>live</em> data (velocity counts your real recent orders) and shows the signal-by-signal score breakdown. Nothing is logged and nothing is held. Use it to sanity-check threshold changes before switching a channel to enforce.</p>
-'''),
-        ('licensing', 'Licensing', '''
-<p>Without a licence key the plugin runs in the <strong>free tier</strong>: monitor mode, manual lists and the simulator — full scoring visibility, no enforcement. A licence enables enforce mode (review queue + fulfilment holds), threat-feed sync and email alerts.</p>
-<p>Licences are JWTs bought from the <a href="/vendure-plugins/fraud-prevention/">plugin page</a> — monthly, annual (two months free), or lifetime. Easiest: click <em>Start 14-day free trial</em> (or <em>Buy lifetime</em>) on the plugin's admin banner — checkout opens in a new tab and the key installs itself within a minute (renewals too). Already have a key? Paste it into the same banner (<em>Activate</em>) — no redeploy. For config-as-code, set it as <code>HULO_LICENCE_KEY_FRAUD_PREVENTION</code> and pass it to <code>init()</code>; an env key takes precedence over an admin-stored one.</p>
+<p>Free. The Simulate tab runs the full assessment for a hypothetical order — email, IP, value, country, first-time-customer flag — against <em>live</em> data (velocity counts your real recent orders) and shows the signal-by-signal score breakdown. Nothing is logged and nothing is held. Use it to sanity-check threshold changes before switching a channel to enforce.</p>
 '''),
     ],
 }
@@ -907,6 +916,7 @@ REVIEW_REQUESTS_MANUAL = {
         ('overview', 'Overview', '''
 <p><strong>Review Requests</strong> automatically invites customers to review you after they buy, timed off the order date. An hourly worker finds orders that reached a milestone (Delivered / Payment settled / Shipped) a set number of days ago and emails a branded, Trustpilot-style invitation.</p>
 <p>It uses the <strong>free</strong> Trustpilot review page for the link — no paid Automatic Feedback Service — and can optionally read your live TrustScore from the free Trustpilot API to show as social proof. The whole thing is per-channel, deduped, and respectful: exclusions, a per-customer cooldown, a minimum order value, and one-click unsubscribe.</p>
+<p>Automatic sending needs a licence (or the evaluation). On the free tier you configure, preview and test-send, and send the invitation for one order from its order page; exclusions, the unsubscribed list, click tracking and the dashboard widget are free too (see <a href="#licensing">Free and licensed</a>).</p>
 '''),
         ('install', 'Install', '''
 <p>One package, one config block. Tables are created on boot; emails go via your SMTP.</p>
@@ -935,7 +945,8 @@ ReviewRequestPlugin.uiExtensions</div>
 <li><strong>Review link</strong> — nothing to set up. The button links to <code>https://www.trustpilot.com/evaluate/&lt;your-domain&gt;</code>, which opens a Service Review form. These land as organic reviews.</li>
 <li><strong>Live rating (optional)</strong> — register a free developer app at <a href="https://developers.trustpilot.com/" target="_blank">developers.trustpilot.com</a> for an <strong>API key</strong>, paste it into Settings and click <em>Check rating</em>. The plugin finds your business-unit id from the domain and shows your TrustScore + review count in the email.</li>
 <li><strong>Google reviews live rating</strong> — pick Google in the platform selector, add a Google Maps API key (Places API enabled) and your Place ID, then Connect. The email shows your live Google star rating the same way, and the review button drops customers straight on Google's "write a review" box.</li>
-<li><strong>Point elsewhere</strong> — the review-link template is configurable, so you can send customers to Google reviews or any URL instead.</li>
+<li><strong>Reviews.io or anywhere else</strong> — pick Reviews.io (the link is <code>reviews.io/company-reviews/store/&lt;id&gt;</code>) or paste any custom URL. Paste your review page and the plugin takes the domain, Place ID or store ID from it; an identifier the platform cannot use is refused with the reason.</li>
+<li><strong>Nothing is sent until the review page is set</strong> — no dead review buttons, and nobody is held back by the cooldown.</li>
 </ul>
 '''),
         ('config', 'Timing & rules', '''
@@ -946,20 +957,19 @@ ReviewRequestPlugin.uiExtensions</div>
 <tr><td>Delay (days)</td><td>14</td><td>How long after the order date to send.</td></tr>
 <tr><td>Min order value</td><td>0</td><td>Skip orders below this value.</td></tr>
 <tr><td>Cooldown (days)</td><td>120</td><td>Never invite the same customer more often than this.</td></tr>
-<tr><td>Max per run</td><td>200</td><td>Safety throttle per hourly run.</td></tr>
+<tr><td>Most invitations per hour</td><td>200</td><td>Per channel; automatic and staff sends together.</td></tr>
 </tbody>
 </table>
 <p>Every invitation is deduped per order, and the plain-English status line at the top of the admin page always tells you exactly what the current settings will do.</p>
 '''),
         ('exclusions', 'Exclusions & opt-out', '''
-<p>Exclude any <strong>email</strong> or whole <strong>domain</strong> in the Exclusions tab — wholesale accounts, staff, VIPs. Every invitation carries a signed one-click <strong>unsubscribe</strong> link; anyone who clicks it is added to the opt-out list automatically and never emailed again. The full send history (sent / skipped / failed, with reasons) is in the Activity tab.</p>
+<p>Exclude any <strong>email</strong> or whole <strong>domain</strong> in the Exclusions tab — wholesale accounts, staff, VIPs. Every invitation carries a signed one-click <strong>unsubscribe</strong> link; anyone who clicks it is added to the unsubscribed list, shown on the Exclusions tab, and never invited again, not even by Resend. The full send history (sent / skipped / failed, with reasons) is in the Activity tab.</p>
+<h3>Sending from the order page</h3>
+<p>The Review invitation panel on every order sends the invitation now (free); opt-outs, exclusions, the cooldown and the hourly limit apply, and the order gets a staff-only note. With a licence, <strong>Resend</strong> overrides a previous invitation, an exclusion or the cooldown — never an opt-out — and the Customers tab invites from a pasted or CSV list (now or scheduled) or from the orders that have had no invitation yet.</p>
 '''),
         ('email', 'The email', '''
 <p>The invitation subject and HTML body are fully editable per channel, with variables <code>{{firstName}}</code>, <code>{{orderCode}}</code>, <code>{{businessName}}</code>, <code>{{reviewUrl}}</code> and a <code>{{ratingBlock}}</code> that renders your live stars when available. Use <em>Preview</em> to see it with sample data and <em>Send test</em> to email a copy to yourself before going live.</p>
 <p><strong>Product reviews.</strong> Under <em>What to ask for</em> in Settings, choose Store review, Product reviews, or Both. In product (or both) mode the email lists the actual products from the customer's order, each with its own "Review this" button linking to your storefront's product-review page — set the link template (with <code>{slug}</code>, <code>{name}</code>, <code>{orderCode}</code>) in Settings. Two extra template variables, <code>{{reviewButton}}</code> and <code>{{productList}}</code>, control where the store button and the product list appear.</p>
-'''),
-        ('licensing', 'Licensing', '''
-<p>Free tier: configure, preview and test-send. <strong>Scheduled sending requires a licence</strong> from the <a href="/vendure-plugins/review-requests/">plugin page</a> — monthly, annual (two months free), or lifetime. Easiest: click <em>Start 14-day free trial</em> (or <em>Buy lifetime</em>) on the plugin's admin banner — checkout opens in a new tab and the key installs itself within a minute (renewals too). Already have a key? Paste it into the same banner (<em>Activate</em>) — no redeploy. For config-as-code, set it as <code>HULO_LICENCE_KEY_REVIEW_REQUESTS</code>; the env key wins when both are present.</p>
 '''),
     ],
 }
@@ -1012,10 +1022,14 @@ plugins: [
 <li><strong>Build:</strong> New quote → search existing customers to autofill their details, then search the catalogue by name/SKU (price pre-fills) or add custom lines. Set quantities, unit-price overrides and per-line discounts; add a quote-level discount, VAT rate, validity and notes/terms. Totals preview live.</li>
 <li><strong>Send:</strong> "Save &amp; send" emails the customer a branded message with the signed quote link — sent <em>as</em> the member of staff you pick in the editor (their name fronts the From header, replies go to them, and the quote page shows "Prepared by"). Preview the rendered email or test-send it to yourself first. Re-send any time; the link is stable.</li>
 <li><strong>Track:</strong> the first open flips the quote to <em>viewed</em> (optionally emailing you at that moment — the best follow-up cue). Add internal notes to the activity trail; extend validity (reviving expired quotes) in one click. The customer accepts by typing their full name (recorded as a signature with a timestamp) or declines with a reason — you're notified by email either way.</li>
-<li><strong>Chase:</strong> the hourly worker sends one reminder for unopened quotes after N days, an expires-soon nudge before the validity date, and expires overdue quotes automatically.</li>
-<li><strong>Convert:</strong> on an accepted quote, "Convert to order" creates a Vendure <em>draft order</em>: catalogue lines become real order lines and one "Quotation pricing" surcharge reconciles any difference, so the draft total equals the quote exactly. Complete the draft in Orders as usual.</li>
+<li><strong>Chase:</strong> the hourly worker sends one reminder for unopened quotes after N days, an expires-soon nudge before the validity date, and expires overdue quotes automatically — all free. With a licence, follow-up sequences add more steps.</li>
+<li><strong>Get paid:</strong> with HULO Payments for Vendure (or your own provider passed as <code>payLinks</code>), switch on <em>Pay link on acceptance</em> or use <em>Create pay link</em> on the quote; the quote is marked paid when the order's settled payments cover the quoted total. Acceptance is bound to the version the customer saw: a quote edited after they opened it cannot be accepted until they reload it.</li>
+<li><strong>Convert</strong> (licensed): on an accepted quote, "Convert to order" creates a Vendure <em>draft order</em>: catalogue lines become real order lines and one "Quotation pricing" surcharge reconciles any difference, so the draft total equals the quote exactly. Complete the draft in Orders as usual.</li>
 </ol>
 <p>Sent quotes that have been decided are immutable — use <em>Duplicate</em> to spin a linked revision when the deal changes.</p>
+'''),
+        ('requests', 'Quote requests from your storefront', '''
+<p>Customers can ask for a quote from a basket, a product page, a calculator or a plain form: post JSON to <code>POST /quotations/request</code> with the channel's <code>vendure-token</code> header (name, email, company, phone, message, source and optional lines by variant id or SKU). The request lands under <strong>Sales → Quotations</strong> as <em>requested</em> with catalogue lines pre-priced at list, the notify address hears about it, and the customer receives an acknowledgement carrying the reference. Price any free-text lines, then <strong>Send to customer</strong>. Turn requests off per channel in Settings; the endpoint is throttled and honeypot-protected. Requests are free. A request posted with the customer's shop session is linked to their account and shows under "My quotes"; guest requests are never linked by e-mail address.</p>
 '''),
         ('endpoints', 'HTTP endpoints', '''
 <table>
@@ -1024,23 +1038,20 @@ plugins: [
 <tr><td>POST</td><td><code>/quotations/quote/:token</code></td><td>Public accept (typed signature) / decline</td></tr>
 <tr><td>GET/POST</td><td><code>/quotations/quotes</code></td><td>Admin: list / create</td></tr>
 <tr><td>PUT/DELETE</td><td><code>/quotations/quotes/:id</code></td><td>Admin: update draft/open · delete draft</td></tr>
-<tr><td>POST</td><td><code>/quotations/quotes/:id/send</code></td><td>Admin: email the customer (licensed)</td></tr>
+<tr><td>POST</td><td><code>/quotations/quotes/:id/send</code></td><td>Admin: email the customer</td></tr>
 <tr><td>POST</td><td><code>/quotations/quotes/:id/convert</code></td><td>Admin: accepted quote → draft order (licensed)</td></tr>
 <tr><td>POST</td><td><code>/quotations/quotes/:id/duplicate</code></td><td>Admin: duplicate / revise</td></tr>
 <tr><td>POST</td><td><code>/quotations/quotes/:id/cancel</code></td><td>Admin: withdraw an open quote</td></tr>
-<tr><td>GET</td><td><code>/quotations/stats</code></td><td>Admin: win rate, open pipeline, response time</td></tr>
+<tr><td>GET</td><td><code>/quotations/stats</code></td><td>Admin: win rate, open pipeline per currency, response time</td></tr>
 <tr><td>GET</td><td><code>/quotations/variants/search</code></td><td>Admin: catalogue search for the editor</td></tr>
 </table>
-'''),
-        ('licensing', 'Licensing & tiers', '''
-<p>Unlicensed installs run in the <strong>free tier</strong> — start the 14-day free trial from the admin banner (card required, nothing charged until day 15, cancel any time) to switch everything on. Free tier: drafting, pricing and previewing quotes stay free — <strong>sending, chasers and order conversion require a licence</strong>. Click <em>Buy licence</em> on the admin banner and the key installs itself within a minute of checkout (renewals too); or paste a key into the admin (Activate) or set <code>HULO_LICENCE_KEY_QUOTATIONS</code>; the env key wins when both are present. Buy at <a href="/vendure-plugins/quotations/">huloglobal.com/vendure-plugins/quotations</a> — monthly, annual (two months free), or lifetime.</p>
 '''),
         ('troubleshooting', 'Troubleshooting', '''
 <ul>
 <li><strong>Emails not sending:</strong> check the SMTP env vars; the send response surfaces the SMTP error verbatim in the admin notification.</li>
 <li><strong>Customer link 404s:</strong> draft quotes have no public page — send the quote first. Withdrawn (cancelled) quotes deliberately stop resolving.</li>
 <li><strong>Convert fails on a line:</strong> the referenced variant must still be enabled and in the channel; the error names the offending line. Free-text-only quotes convert as a single surcharge.</li>
-<li><strong>Chasers not going out:</strong> they run on the <em>worker</em> process, hourly, licensed installs only, and each quote gets at most one chaser.</li>
+<li><strong>Chasers not going out:</strong> they run on the <em>worker</em> process, hourly, and each quote gets at most one chaser.</li>
 </ul>
 '''),
     ],
@@ -1055,7 +1066,7 @@ BUSINESS_CREDIT_MANUAL = {
     'title_short': 'Business Credit',
     'sections': [
         ('overview', 'Overview', '''
-<p><strong>Business Credit</strong> adds trade-credit accounts to Vendure. A business customer applies for terms from your storefront, you approve them with a credit limit and net terms, and from then on they can choose <em>Pay on Account</em> at checkout: the order is placed immediately and an invoice with a due date is raised against their account. Money comes back by bank transfer, card (a Stripe pay link), direct debit, cheque, cash, credit note or write-off, and every settlement is allocated oldest-first across their open invoices. A daily run marks invoices overdue, sends reminders, applies late fees if you use them, suspends accounts that go too far past due, and emails monthly statements.</p>
+<p><strong>Business Credit</strong> adds trade-credit accounts to Vendure. A business customer applies for terms from your storefront, you approve them with a credit limit and net terms, and from then on they can choose <em>Pay on Account</em> at checkout: the order is placed immediately and an invoice with a due date is raised against their account. Money comes back by bank transfer, card (a Stripe pay link), direct debit, cheque, cash, credit note or write-off, and every settlement is allocated oldest-first across their open invoices. A daily run marks invoices overdue and, with a licence, sends reminders, applies late fees if you use them, suspends accounts that go too far past due, and emails monthly statements. Applications, paying one invoice online, invoices you raise by hand, the one-click reminder and members added by an admin are free (see <a href="#licensing">Free and licensed</a>).</p>
 <ul>
 <li><strong>Available credit</strong> = effective limit (a temporary increase while it lasts, else the permanent limit) − open invoice balances (including late fees) + any credit balance held from overpayments.</li>
 <li><strong>Account statuses:</strong> pending → active ⇄ suspended → closed (closing needs zero exposure).</li>
@@ -1090,44 +1101,41 @@ plugins: [
 <tr><td>Remittance text</td><td>Your bank details, shown on invoices, emails and the confirmation page.</td></tr>
 </table>
 '''),
-                ('requests', 'Quote requests from your storefront', '''
-<p>Customers can ask for a quote from a basket, a product page, a calculator or a plain form: post JSON to <code>POST /quotations/request</code> with the channel's <code>vendure-token</code> header (name, email, company, phone, message, source and optional lines by variant id or SKU). The request lands under <strong>Sales → Quotations</strong> as <em>requested</em> with catalogue lines pre-priced at list, the notify address hears about it, and the customer receives an acknowledgement carrying the reference. Price any free-text lines, then <strong>Send to customer</strong>. Turn requests off per channel in Settings; the endpoint is throttled and honeypot-protected.</p>
-'''),
 ('admin', 'Admin UI', '''
 <p><strong>Sales → Business credit</strong>.</p>
 <ul>
 <li><strong>Overview</strong> — total exposure, overdue, credit held, due in the next seven days, pending applications, aging buckets and the ten largest exposures.</li>
 <li><strong>Accounts</strong> — search and filter; open an account for its availability gauge, company details, terms, status actions (suspend / reactivate / close), limit adjustments with history, invoices, ledger, settlement recording, statements and events. <em>New account</em> creates one for an existing customer without an application.</li>
 <li><strong>Applications</strong> — the storefront queue: approve with a limit, terms and a note, or reject with a note; the customer is emailed either way.</li>
-<li><strong>Invoices</strong> and <strong>Settlements</strong> — all invoices and payments across accounts with write-off, void, fee, pay-link and refund actions, plus CSV export.</li>
+<li><strong>Invoices</strong> and <strong>Settlements</strong> — all invoices and payments across accounts with write-off, void, fee, pay-link, <em>Remind</em> and refund actions, plus CSV export (licensed). <em>Raise invoice</em> on an account bills it for work or goods that never went through the checkout: typed lines, PO, terms and a note.</li>
 <li><strong>Settings</strong> — the per-channel configuration above, email previews and a test send, and <em>Run dunning now</em> with a report.</li>
 </ul>
 '''),
         ('platform', 'Company accounts, invitations, auto-approval, reviews', '''
-<p><strong>Members.</strong> An account belongs to one customer login (the owner) but a company usually has several buyers. The owner adds colleagues from the storefront (Credit account → Team) as <em>buyer</em> (can place orders on account) or <em>viewer</em> (can see invoices and statements only); admins can do the same from the account's Team pane. Members share the limit, funds and invoices of the company account.</p>
-<p><strong>Invitations.</strong> Sales → Business credit → Invitations → <em>Invite a business</em>: email, company, limit, terms and a message. The invitee gets a link valid for the configured number of days; when they accept while signed in with that email, an active account is created at the invited limit — no application needed.</p>
-<p><strong>Auto-approval.</strong> In Settings, switch on auto-approval and set the maximum limit, minimum settled orders, minimum spend and whether a company number is required. Storefront applications that meet every rule are approved immediately (tagged <em>Auto-approved</em> in the queue); the rest wait for you.</p>
-<p><strong>Reviews.</strong> Every approval sets a review date (Settings → review every N months). The daily run emails you when an account is due and the account shows a <em>Review due</em> pill until you click <em>Mark reviewed</em>.</p>
+<p><strong>Members.</strong> An account belongs to one customer login (the owner) but a company usually has several buyers. Admins add colleagues from the account's Team pane as <em>buyer</em> (can place orders on account) or <em>viewer</em> (can see invoices and statements only), on every tier; with a licence the owner can also add them through the storefront API. Members share the limit, funds and invoices of the company account.</p>
+<p><strong>Invitations</strong> (licensed). Sales → Business credit → Invitations → <em>Invite a business</em>: email, company, limit, terms and a message. The invitee gets a link valid for the configured number of days; when they accept while signed in with that email, an active account is created at the invited limit — no application needed.</p>
+<p><strong>Auto-approval</strong> (licensed). In Settings, switch on auto-approval and set the maximum limit, minimum settled orders, minimum spend and whether a company number is required. Storefront applications that meet every rule are approved immediately (tagged <em>Auto-approved</em> in the queue); the rest wait for you.</p>
+<p><strong>Reviews.</strong> Every approval sets a review date (Settings → review every N months). With a licence, the daily run emails you when an account is due; either way the account shows a <em>Review due</em> pill until you click <em>Mark reviewed</em>.</p>
 '''),
         ('plans', 'Payment plans', '''
-<p>An outstanding invoice can be split into instalments: Invoices → <em>Create payment plan</em> (number of instalments, first date, interval, note) or accept a customer's request from their account page. While a plan is active, reminders and overdue marking follow the instalment dates, late fees pause, and each settlement fills the instalments in order; the plan completes when the invoice is paid and can be cancelled at any time (the invoice then falls back to its original due date).</p>
+<p>With a licence, an outstanding invoice can be split into instalments: Invoices → <em>Create payment plan</em> (number of instalments, first date, interval, note) or accept a customer's request from their account page. While a plan is active, reminders and overdue marking follow the instalment dates, late fees pause, and each settlement fills the instalments in order; the plan completes when the invoice is paid and can be cancelled at any time (the invoice then falls back to its original due date).</p>
 '''),
         ('loyalty', 'Reward points', '''
-<p>Sales → Business credit → Loyalty. Switch the programme on per channel and set: points per £1 spent, the value of a point when redeemed, the minimum points to redeem, the maximum share of an order that points may cover, expiry in months, a signup bonus, whether on-account orders earn, and tiers (name, lifetime-points threshold, earn multiplier). Points are earned when an order's payment settles and reversed if it is cancelled. At checkout a signed-in customer applies points as a discount (a negative surcharge on the order); the storefront shows "Earn ~N points" on product pages and the balance, tier progress and history under Account → Reward points. Adjust balances, view any customer's history, see programme statistics and export CSV from the Loyalty tab.</p>
+<p>Licensed. Sales → Business credit → Loyalty. Switch the programme on per channel and set: points per £1 spent, the value of a point when redeemed, the minimum points to redeem, the maximum share of an order that points may cover, expiry in months, a signup bonus, whether on-account orders earn, and tiers (name, lifetime-points threshold, earn multiplier). Points are earned when an order's payment settles, and on an invoice raised by hand once it is paid, and are reversed if the order is cancelled. A signed-in customer applies points at checkout as a discount (a negative surcharge on the order) or against an open credit invoice. Your storefront can show "Earn ~N points" on product pages and the balance, tier progress and history from the customer REST API (<code>/business-credit/my/loyalty</code>). Adjust balances, view any customer's history, see programme statistics and export CSV from the Loyalty tab.</p>
 '''),
         ('settlements', 'Settlements & Stripe', '''
 <p>Record a settlement with a method, amount, reference and date. Allocation is oldest-first across open invoices unless you allocate per invoice; anything left over is held as account credit and applied to the next invoices automatically. Overpayments, credit notes from refunds and write-offs all flow through the same ledger, so the account balance is always the sum of its ledger rows.</p>
-<p><strong>Prepaid funds.</strong> Money can also be paid in before any invoice exists: customers top up by card from their account page, or you record a deposit (account → Funds). Held funds settle open invoices at once and pay for new on-account orders the moment they are placed, so an account with a zero limit and £500 of funds can order up to £500. Withdraw unused funds from the same pane.</p>
-<p><strong>Card pay links</strong> create a Stripe Checkout Session for one or more invoices using the Stripe key on the channel's Stripe payment method. Point a Stripe webhook at <code>https://your-vendure-host/business-credit/stripe-webhook</code> with the events <code>checkout.session.completed</code> and <code>checkout.session.async_payment_succeeded</code>, and set the signing secret as <code>BUSINESS_CREDIT_STRIPE_WEBHOOK_SECRET_&lt;CHANNELCODE&gt;</code> or the plugin's <code>stripeWebhookSecret</code>. Replays are ignored: one settlement per payment intent.</p>
+<p><strong>Prepaid funds.</strong> Money can also be paid in before any invoice exists: you record a deposit or, with a licence, customers top up by card from their account page (account → Funds). Held funds settle open invoices at once and pay for new on-account orders the moment they are placed, so an account with a zero limit and £500 of funds can order up to £500. Withdraw unused funds from the same pane.</p>
+<p><strong>Card pay links</strong> create a Stripe Checkout Session for one invoice (free) or several at once (licensed) using the Stripe key on the channel's Stripe payment method. Point a Stripe webhook at <code>https://your-vendure-host/business-credit/stripe-webhook</code> with the events <code>checkout.session.completed</code> and <code>checkout.session.async_payment_succeeded</code>, and set the signing secret as <code>BUSINESS_CREDIT_STRIPE_WEBHOOK_SECRET_&lt;CHANNELCODE&gt;</code> or the plugin's <code>stripeWebhookSecret</code>. Replays are ignored: one settlement per payment intent.</p>
 '''),
         ('endpoints', 'REST endpoints', '''
 <table>
 <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
 <tr><td>GET</td><td><code>/business-credit/my/account</code></td><td>Shop: limit, available credit, terms, status</td></tr>
-<tr><td>POST</td><td><code>/business-credit/my/apply</code></td><td>Shop: apply for an account (licensed)</td></tr>
+<tr><td>POST</td><td><code>/business-credit/my/apply</code></td><td>Shop: apply for an account</td></tr>
 <tr><td>GET</td><td><code>/business-credit/my/invoices</code></td><td>Shop: my invoices</td></tr>
-<tr><td>POST</td><td><code>/business-credit/my/invoices/pay-link</code></td><td>Shop: pay selected invoices by card (licensed)</td></tr>
-<tr><td>GET</td><td><code>/business-credit/my/statement</code></td><td>Shop: statement for a period (JSON or HTML)</td></tr>
+<tr><td>POST</td><td><code>/business-credit/my/invoices/pay-link</code></td><td>Shop: pay an invoice by card (several at once: licensed)</td></tr>
+<tr><td>GET</td><td><code>/business-credit/my/statement</code></td><td>Shop: statement for a period (JSON, or HTML with <code>?format=html</code>)</td></tr>
 <tr><td>GET</td><td><code>/business-credit/dashboard</code></td><td>Admin: exposure, overdue, aging</td></tr>
 <tr><td>GET/POST</td><td><code>/business-credit/accounts</code></td><td>Admin: list / create</td></tr>
 <tr><td>POST</td><td><code>/business-credit/accounts/:id/limit</code></td><td>Admin: permanent or temporary limit change</td></tr>
@@ -1141,14 +1149,11 @@ plugins: [
 </table>
 <p>Storefront tip: send the customer's PO number as <code>metadata.purchaseOrder</code> in <code>addPaymentToOrder</code>, and read <code>payment.metadata.public</code> (invoice number, due date, remittance text) on your confirmation page.</p>
 '''),
-        ('licensing', 'Licensing & tiers', '''
-<p>Unlicensed installs run in the <strong>free tier</strong>: accounts, limits with the audit trail, Pay on Account, invoices, manual settlements, the ledger and statements in the admin all stay on. <strong>Card pay links, reminders and dunning emails, late fees, auto-suspend, statement emails, CSV exports and storefront applications require a licence.</strong> Start the 14-day free trial from the admin banner, click <em>Buy licence</em> and the key installs itself within a minute of checkout, or paste a key into the admin or set <code>HULO_LICENCE_KEY_BUSINESS_CREDIT</code>. Buy at <a href="/vendure-plugins/business-credit/">huloglobal.com/vendure-plugins/business-credit</a> — monthly, annual, or lifetime.</p>
-'''),
         ('troubleshooting', 'Troubleshooting', '''
 <ul>
 <li><strong>Pay on Account is not offered at checkout:</strong> the customer needs an <em>active</em> account in this channel, available credit at least the order total, no overdue hold, and the payment method must be enabled with the <em>business-credit-eligibility</em> checker.</li>
 <li><strong>Declined with "purchase order required":</strong> the channel or account requires a PO; send it as <code>metadata.purchaseOrder</code>.</li>
-<li><strong>No reminder emails:</strong> reminders need a licence, SMTP configured, and the daily run happens on the worker at 07:00 — use <em>Run dunning now</em> in Settings to test.</li>
+<li><strong>No reminder emails:</strong> automatic reminders need a licence (the one-click <em>Remind</em> on an invoice does not), SMTP configured, and the daily run happens on the worker at 07:00 — use <em>Run dunning now</em> in Settings to test.</li>
 <li><strong>Card payment did not settle the invoice:</strong> check the webhook secret env name matches the channel code, and that Stripe shows the event delivered with a 200.</li>
 <li><strong>Cannot close an account:</strong> closing needs zero exposure — settle or write off open invoices first.</li>
 </ul>
@@ -1165,7 +1170,7 @@ CHECKOUT_GUARD_MANUAL = {
     'title_short': 'Checkout Guard',
     'sections': [
         ('overview', 'Overview', '''
-<p><strong>Checkout Guard</strong> is the safety layer around Vendure checkout and payments: Stripe manual-capture holds that actually place the order (an Authorized payment, capture or cancel from the admin, a safety capture before the authorisation expires), a bank-transfer method that carries the account details to the storefront and expires unpaid orders, a payment-event log with nightly Stripe reconciliation, session-bound anonymous order lookup, a trusted client-IP contract for server-side proxies, rate limits on the checkout mutations, and a checkout funnel.</p>
+<p><strong>Checkout Guard</strong> is the safety layer around Vendure checkout and payments: Stripe manual-capture holds that actually place the order (an Authorized payment, capture or release from the admin; with a licence, a safety capture before the authorisation expires), a bank-transfer method that carries the account details to the storefront (optionally through Stripe virtual accounts that settle themselves; with a licence, unpaid orders expire), a decline log, nightly Stripe reconciliation (licensed), session-bound anonymous order lookup, a trusted client-IP contract for server-side proxies, rate limits and a card-testing gate on the checkout mutations, opt-in login and lookup guards, and a checkout funnel (see <a href="#licensing">Free and licensed</a>).</p>
 '''),
         ('install', 'Install & configure', '''
 <pre><code>yarn add @huloglobal/vendure-plugin-checkout-guard</code></pre>
@@ -1183,13 +1188,10 @@ plugins: [
     ops: { slackWebhookUrl: process.env.OPS_SLACK_WEBHOOK_URL, adminEmail: 'ops@example.com' },
   }),
 ]</code></pre>
-<p>Add <code>CheckoutGuardPlugin.uiExtensions</code> to <code>compileUiExtensions</code>. Create a payment method with the <em>stripe-hold</em> handler per channel that should hold rather than charge, and one with the <em>bank-transfer</em> handler (its arguments carry the account details shown to customers). Point a Stripe webhook at <code>/checkout-guard/stripe-webhook</code> with <code>payment_intent.amount_capturable_updated</code>, <code>payment_intent.payment_failed</code> and <code>charge.succeeded</code>.</p>
+<p>Add <code>CheckoutGuardPlugin.uiExtensions</code> to <code>compileUiExtensions</code>. The plugin adds an Order custom field, <code>cgSessionHash</code> (and <code>cgClientIp</code> with the opt-in <code>orderClientIp</code>), so run your migrations or use <code>synchronize</code>. The 0.4.0 guards are opt-in: <code>loginGuard</code>, <code>orderLookup</code>, <code>rateLimits: { store: 'database' | 'cache' }</code>, <code>cardTesting: { autoOrderGate: true }</code> and <code>orderClientIp</code>. Create a payment method with the <em>stripe-hold</em> handler per channel that should hold rather than charge, and one with the <em>bank-transfer</em> handler (its arguments carry the account details shown to customers). Point a Stripe webhook at <code>/checkout-guard/stripe-webhook</code> with <code>payment_intent.amount_capturable_updated</code>, <code>payment_intent.payment_failed</code> and <code>charge.succeeded</code>.</p>
 '''),
         ('admin', 'Admin UI', '''
-<p><strong>Sales → Checkout Guard</strong>: Overview KPIs, Holds (capture / cancel), Bank transfers (awaiting / expired / settled, mark received), Payment events, Funnel and Settings, plus the Licence & billing card.</p>
-'''),
-        ('licensing', 'Licensing & tiers', '''
-<p>Free tier: session-bound order lookup, trusted client IP, rate limits, funnel and the bank-transfer handler. <strong>Stripe holds, bank-transfer expiry and reminders, the failed-payment log, reconciliation, drift guard and ops alerts require a licence.</strong> Start the 14-day free trial or buy from the admin banner, or set <code>HULO_LICENCE_KEY_CHECKOUT_GUARD</code>. Buy at <a href="/vendure-plugins/checkout-guard/">huloglobal.com/vendure-plugins/checkout-guard</a>.</p>
+<p><strong>Sales → Checkout Guard</strong>: Overview KPIs, Holds (capture / release), Bank transfers (awaiting / expired / settled, mark received), Payment events, Funnel and Settings (editable settings over the code's options, blocked connections with Unblock, the weekly report), plus the Licence & billing card.</p>
 '''),
         ('troubleshooting', 'Troubleshooting', '''
 <ul>
@@ -1207,7 +1209,8 @@ PAYMENTS_MANUAL = {
     'title_short': 'Payments',
     'sections': [
         ('overview', 'Overview', '''
-<p><strong>Payments</strong> puts eleven payment systems — Stripe, Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com, Coinbase Commerce, bank transfer and pay-later — behind one contract, and serves a hosted checkout page so a storefront needs no provider code at all. The storefront asks which providers to offer and gets a session; the provider's own client renders cards, Apple Pay, Google Pay, iDEAL, Klarna and the rest with 3-D Secure handled by the provider; the plugin re-reads the result from the provider (amount, currency, order code) before Vendure records the payment. Automatic or manual capture, partial captures and refunds, disputes, saved cards, subscriptions, pay-by-link, routing rules and surcharges work the same way on every provider, and everything lands in one ledger with a dashboard under <strong>Sales → Payments</strong>.</p>
+<p><strong>Payments</strong> puts eleven payment systems — Stripe, Adyen, PayPal, Mollie, Square, Braintree, GoCardless, Checkout.com, Coinbase Commerce, bank transfer and pay-later — behind one contract, and serves a hosted checkout page so a storefront needs no provider code at all. The storefront asks which providers to offer and gets a session; the provider's own client renders cards, Apple Pay, Google Pay, iDEAL, Klarna and the rest with 3-D Secure handled by the provider; the plugin re-reads the result from the provider (amount, currency, order code) before Vendure records the payment. Automatic or manual capture, partial captures and refunds, disputes, saved cards, subscriptions, pay-by-link, routing rules and surcharges work the same way on every provider, and everything lands in one ledger with a dashboard under <strong>Sales → Payments</strong>. Stripe, bank transfer, pay later, the hosted checkout page, pay links (hosted page or Stripe) and the ledger are free; the other providers, subscriptions, saved cards, surcharges and fallback after a decline need a licence (see <a href="#licensing">Free and licensed</a>).</p>
+<p>Each payment method has its own webhook endpoint, <code>&lt;publicBaseUrl&gt;/hulo-payments/webhook/&lt;handler code&gt;</code>, for example <code>https://shop.example.com/hulo-payments/webhook/hulo-stripe</code>; the Providers tab shows the exact URL. Disputes are reported by Stripe, Adyen, PayPal, Mollie, Square, Checkout.com and GoCardless.</p>
 '''),
         ('install', 'Install & configure', '''
 <pre><code>yarn add @huloglobal/vendure-plugin-payments</code></pre>
@@ -1262,16 +1265,13 @@ mutation { addPaymentToOrder(input: { method: "stripe", metadata: { paymentInten
 <p>Also available: <code>huloSavedPaymentMethods</code>, <code>huloRemoveSavedPaymentMethod</code>, <code>huloMySubscriptions</code>, <code>huloCancelSubscription</code> and <code>huloApplyPaymentSurcharge</code>.</p>
 '''),
         ('subscriptions', 'Subscriptions', '''
-<p>Set <strong>Subscription billing interval</strong> (daily / weekly / monthly / yearly), optionally <em>every N intervals</em> and <em>free trial days</em>, on a product variant. Its price is the price per period. When an order containing it is paid through a HULO method the plugin creates the subscription: Stripe, PayPal and Mollie bill natively; Adyen renewals are charged hourly by the plugin's scheduler from the stored card. Failed renewals mark the subscription past due, alert ops and cancel after the number of failed daily attempts set in Settings. Customers see and cancel their subscriptions through the shop API; admins pause, resume and cancel from the Subscriptions tab, which also shows MRR.</p>
+<p>With a licence or during the evaluation. Set <strong>Subscription billing interval</strong> (daily / weekly / monthly / yearly), optionally <em>every N intervals</em> and <em>free trial days</em>, on a product variant. Its price is the price per period. When an order containing it is paid through a HULO method the plugin creates the subscription: Stripe, PayPal and Mollie bill natively; Adyen renewals are charged hourly by the plugin's scheduler from the stored card. Failed renewals mark the subscription past due, alert ops and cancel after the number of failed daily attempts set in Settings. Customers see and cancel their subscriptions through the shop API; admins pause, resume and cancel from the Subscriptions tab, which also shows MRR.</p>
 '''),
         ('paylink', 'Pay by link', '''
-<p>From the <strong>Pay by link</strong> tab, enter any order code that still needs payment — a draft order built in the admin, an accepted quotation, a phone order — pick a provider and an expiry, and copy the link. The customer pays on the provider's hosted page and the webhook moves the order to PaymentSettled.</p>
+<p>Free. From the <strong>Pay by link</strong> tab, enter any order code that still needs payment — a draft order built in the admin, an accepted quotation, a phone order — choose <em>This shop's payment page</em> (the hosted page, offering every method enabled on the channel) or <em>A provider's payment page</em> (Stripe Checkout on the free tier; Adyen, PayPal, Mollie, Square, Checkout.com or Coinbase Commerce with a licence), set an expiry (1 hour to 30 days) and copy the link. A hosted link is paid like a checkout; a provider link is settled by the provider's webhook.</p>
 '''),
         ('admin', 'Admin UI', '''
-<p><strong>Sales → Payments</strong>: Overview (volume by day and provider, success rate, refunds, disputes, subscriptions), Transactions (the ledger, filterable by kind, status and order), Subscriptions, Pay by link, Providers (Connect, capabilities, webhook URLs, recent webhook deliveries) and Settings (provider order and fallback, saved cards, surcharges, ops email, dunning), plus the Licence &amp; billing card. Refunds are issued from the order page as usual and appear in the ledger automatically.</p>
-'''),
-        ('licensing', 'Licensing & tiers', '''
-<p>Free tier: Stripe (sessions, wallets, 3-D Secure, captures, refunds, disputes, signed webhooks), the ledger, the dashboard and the rules checker. <strong>Adyen, PayPal, Mollie, subscriptions, saved cards, pay-by-link, provider routing and surcharges require a licence.</strong> Unlicensed installs run everything for 14 days; start the card-backed trial or buy from the admin banner.</p>
+<p><strong>Sales → Payments</strong>: Overview (volume by day and provider, success rate, refunds, disputes, subscriptions), Transactions (the ledger, filterable by kind, status and order), Subscriptions, Pay by link, Providers (Connect, capabilities, webhook URLs, recent webhook deliveries) and Settings (provider order and fallback, refund reconciliation, saved cards, surcharges, hosted page, ops email, dunning, weekly report), plus the Licence &amp; billing card. A refund made in a provider's own dashboard can become a settled Vendure refund on the order (Settings → Routing, off until you turn it on). Refunds are issued from the order page as usual and appear in the ledger automatically.</p>
 '''),
         ('troubleshooting', 'Troubleshooting', '''
 <ul>
@@ -1326,7 +1326,27 @@ def label_regions(html_str, section_title):
     return code_re.sub(code, out)
 
 
+def tiers_section(m):
+    """The manual's "Free and licensed" section, from build.TIERS (the same
+    lists as the product page), so the two never disagree."""
+    free, paid = vp.TIERS[m['slug']]
+    env = 'HULO_LICENCE_KEY_' + m['slug'].upper().replace('-', '_')
+    li = lambda items: ''.join(f'<li>{html.escape(t)}</li>' for t in items)
+    return f'''
+<p>Every new installation has every feature on for its first 14 days, with no card and no licence key. After that the plugin keeps running in its <strong>free tier</strong> for as long as you like; a licence keeps the licensed features on. If a licence lapses, the licensed features stop and nothing is deleted: settings and data are kept, and a key switches them back on.</p>
+<h3>Free tier</h3>
+<ul>{li(free)}</ul>
+<h3>Licensed (and the first 14 days)</h3>
+<ul>{li(paid)}</ul>
+<p>Buy a monthly, annual (two months free) or lifetime licence from the <a href="/vendure-plugins/{m['slug']}/">plugin page</a>, or click <em>Subscribe</em> (or <em>Buy lifetime</em>) on the licence banner of the plugin's admin page: checkout opens in a new tab and the key installs itself within a minute, renewals included. Already have a key? Paste it into the same banner (<em>Activate</em>), no redeploy, or set <code>{env}</code>; the environment key wins when both are present.</p>
+'''
+
+
 def render_manual(m):
+    sections = [s for s in m['sections'] if s[0] != 'licensing']
+    at = next((i for i, s in enumerate(sections) if s[0] in ('endpoints', 'troubleshooting')), len(sections))
+    sections.insert(at, ('licensing', 'Free and licensed', tiers_section(m)))
+    m = {**m, 'sections': sections}
     canonical = f'https://huloglobal.com/vendure-plugins/{m["slug"]}/docs/'
     title_short = m['title_short']
     trail = [('Vendure plugins', '/vendure-plugins/'), (title_short, f"/vendure-plugins/{m['slug']}/"), ('Manual', None)]

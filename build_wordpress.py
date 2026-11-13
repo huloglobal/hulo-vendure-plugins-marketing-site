@@ -555,7 +555,7 @@ def plugin_page(p: dict) -> str:
 {plans}
 </div>
 </div>
-<p class="mt-4 text-xs text-ink-600">Prices follow the currency picker at the top of the page; the checkout bills in GBP, USD, EUR, AUD and CAD. One licence covers one WordPress site.</p>
+<p class="mt-4 text-xs text-ink-600">Prices follow the currency picker at the top of the page; the checkout bills in GBP, USD, EUR, AUD and CAD. One licence covers one WordPress site. 30-day refund on lifetime licences if Pro doesn't fit your stack (<a href="/legal/terms/#s8" class="underline">Terms</a>, section 8).</p>
 {prices_js}'''
 
     blocks = [('features', features)]
